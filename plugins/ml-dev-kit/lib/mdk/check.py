@@ -1,6 +1,8 @@
 """The mechanical Done check: the part of 'done' that the agent cannot talk its way past."""
 from __future__ import annotations
 
+import os
+import signal
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,6 +11,7 @@ from . import docs
 from .run import Run, is_approved
 
 TAIL_LINES = 40
+KILL_GRACE = 5
 
 
 @dataclass
@@ -65,15 +68,31 @@ def _uncovered(run: Run, fid: str, tests: list[str]) -> list[str]:
 
 def _run_suite(command: str, root: Path, timeout: int) -> tuple[list[str], str]:
     try:
-        done = subprocess.run(
-            command, shell=True, cwd=root, capture_output=True, text=True, errors="replace", timeout=timeout
+        proc = subprocess.Popen(
+            command, shell=True, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, errors="replace", start_new_session=True,
         )
-    except subprocess.TimeoutExpired as err:
-        return [f"test command timed out after {timeout}s"], _tail(err.stdout, err.stderr)
     except OSError as err:
         return [f"test command could not start: {err.strerror}"], ""
-    failed = [f"test command failed (exit {done.returncode})"] if done.returncode else []
-    return failed, _tail(done.stdout, done.stderr)
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _kill_group(proc)
+        try:
+            out, err = proc.communicate(timeout=KILL_GRACE)
+        except subprocess.TimeoutExpired as late:
+            out, err = late.stdout, late.stderr
+        return [f"test command timed out after {timeout}s"], _tail(out, err)
+    failed = [f"test command failed (exit {proc.returncode})"] if proc.returncode else []
+    return failed, _tail(out, err)
+
+
+def _kill_group(proc: subprocess.Popen) -> None:
+    """Kill the shell and everything it started: a compound command leaves children behind it."""
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (AttributeError, OSError):
+        proc.kill()
 
 
 def _tail(*streams: str | bytes | None) -> str:

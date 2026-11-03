@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import os
 import shutil
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
-from helpers import build_ready_repo, spec_text, write
+from helpers import build_ready_repo, commit, spec_text, write
 from mdk.check import CheckResult, check_feature
 
 GREEN = "python3 -c \"print('ok')\""
@@ -42,6 +44,28 @@ class CheckFeatureTests(unittest.TestCase):
     def test_ids_outside_test_files_do_not_count(self):
         root, run = self.ready(tests="def test_01_B1(): pass\n")
         write(root, "notes/cover.py", BOTH_IDS)
+        self.assertEqual(check_feature(run, "01").problems, ["no test names 01-B2"])
+
+    def test_committed_nested_test_file_counts(self):
+        root, run = self.ready(tests=None)
+        write(root, "tests/unit/test_x.py", BOTH_IDS)
+        commit(root, "tests")
+        r = check_feature(run, "01")
+        self.assertTrue(r.passed, r.problems)
+
+    def test_gitignored_test_file_does_not_count(self):
+        root, run = self.ready(tests=None)
+        write(root, ".gitignore", "tests/generated/\n")
+        write(root, "tests/generated/test_x.py", BOTH_IDS)
+        r = check_feature(run, "01")
+        self.assertFalse(r.passed)
+        self.assertIn("no test files match tests/**/*.py", r.problems)
+
+    def test_tracked_but_deleted_test_file_is_skipped(self):
+        root, run = self.ready(tests="def test_01_B1(): pass\n")
+        write(root, "tests/test_gone.py", "def test_01_B2(): pass\n")
+        commit(root, "tests")
+        (root / "tests/test_gone.py").unlink()
         self.assertEqual(check_feature(run, "01").problems, ["no test names 01-B2"])
 
     def test_fails_no_test_files(self):
@@ -81,6 +105,35 @@ class CheckFeatureTests(unittest.TestCase):
         r = check_feature(run, "01", timeout=1)
         self.assertEqual(r.problems, ["test command timed out after 1s"])
         self.assertFalse(r.passed)
+
+    def test_timeout_kills_the_whole_command_not_just_the_shell(self):
+        root, run = self.ready("sleep 30 & echo $! > child.pid; wait")
+        self.addCleanup(self.reap, root / "child.pid")
+        r = check_feature(run, "01", timeout=1)
+        self.assertEqual(r.problems, ["test command timed out after 1s"])
+        pid = int((root / "child.pid").read_text())
+        deadline = time.monotonic() + 2
+        while self.alive(pid) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertFalse(self.alive(pid), "the test command's child outlived the timeout")
+
+    def test_timeout_keeps_partial_output(self):
+        _, run = self.ready("echo partial; sleep 30 && echo never")
+        r = check_feature(run, "01", timeout=1)
+        self.assertIn("partial", r.output_tail)
+        self.assertNotIn("never", r.output_tail)
+
+    @staticmethod
+    def alive(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        return True
+
+    def reap(self, pid_file: Path):
+        if pid_file.exists() and self.alive(int(pid_file.read_text())):
+            os.kill(int(pid_file.read_text()), 9)
 
     def test_missing_runner_reported(self):
         _, run = self.ready("definitely-not-a-command-xyz")
