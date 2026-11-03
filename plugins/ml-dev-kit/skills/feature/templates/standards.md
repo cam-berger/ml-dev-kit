@@ -17,7 +17,7 @@ How code in this project is built. Build follows these rules, the Reviewer enfor
 
 ## Testing
 
-<!-- The command runs the whole suite and exits 0 when it passes. Test files lists globs, comma-separated, such as `tests/**/*.py`. -->
+<!-- The command runs the whole suite and exits 0 when it passes. Test files lists globs, each in its own backticks, comma-separated, such as `tests/**/*.py`, `src/**/*_test.py`. -->
 Test command: `<fill in>`
 Test files: `<glob>`
 

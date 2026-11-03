@@ -102,8 +102,22 @@ class SkillFileTests(unittest.TestCase):
     def test_standards_template_parses(self):
         parse_standards((SKILL / "templates/standards.md").read_text(encoding="utf-8"))
 
+    def test_standards_template_gives_each_glob_its_own_backticks(self):
+        # parse_standards reads `a, b` as one glob that matches nothing.
+        t = (SKILL / "templates/standards.md").read_text(encoding="utf-8")
+        self.assertIn("its own backticks", t)
+        self.assertIn("`tests/**/*.py`, `src/**/*_test.py`", t)
+
+    def test_setup_checks_machine_lines_before_they_lock(self):
+        # After setup STANDARDS.md is the human's, so a broken line would only show in Build, unfixable.
+        setup = (SKILL / "references/setup.md").read_text(encoding="utf-8")
+        locked = setup.index("`mdk await standards`")
+        for phrase in ("Run the drafted test command and time it", "8 minutes", "git ls-files"):
+            self.assertLess(setup.index(phrase), locked, phrase)
+
     def test_build_reference_caps_fix_loop_at_3(self):
-        self.assertIn("3", (SKILL / "references/build.md").read_text(encoding="utf-8"))
+        build = (SKILL / "references/build.md").read_text(encoding="utf-8")
+        self.assertRegex(build, r"Fix rounds are capped at 3\. If the third round [^\n]*`mdk escalate NN ")
 
     def test_skill_names_only_real_mdk_commands(self):
         for rel, text in _skill_texts().items():
