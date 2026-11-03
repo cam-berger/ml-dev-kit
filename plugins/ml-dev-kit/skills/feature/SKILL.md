@@ -15,7 +15,7 @@ Goal given with the command (may be empty): $ARGUMENTS
 
 ## Start
 
-1. Run `git rev-parse --show-toplevel`. If it fails, the project is not a git repo, and a Run needs one for its branch and commits. Offer to run `git init`, then `git add -A && git commit --allow-empty -m "Initial commit"`. Stop if the human declines.
+1. Run `git rev-parse --show-toplevel`. If it fails, the project is not a git repo, and a Run needs one for its branch and commits. Offer to run `git init`. Before the first commit, show the human `git status --short` and propose a `.gitignore` for the stack, so secrets, dependencies and build output stay out of history; then run `git add -A && git commit --allow-empty -m "Initial commit"`. Stop if the human declines.
 2. Run `mdk status`. It prints JSON with `active`, `stage`, `awaiting`, `current`, `features`, `escalation` and `next`, the step to take now.
 3. If `active` is true, resume: tell the human in a line where the Run stands, then route by stage below. If a Goal was also given, say that Run `<slug>` is still active and must finish first.
 4. If no Run is active and no Goal was given, ask for the Goal. Otherwise pick a short slug for it (lowercase words joined by hyphens, such as `user-accounts`) and run `mdk init <slug> "<goal>"`, then `mdk status` again. `init` needs a clean working tree. If it refuses, show the human why and offer the fix.
@@ -39,5 +39,5 @@ These hold in every stage.
 - Never edit an approved document: `STANDARDS.md`, the Breakdown, or a Spec above its `## Deviations` heading. The Approval covers that text. If one has to change, tell the human why, change it, run its `mdk await` again and ask for a new Approval. The Breakdown can change only between Features, keeping each started or Done Feature's line; a Spec in Build changes only through an Escalation. After setup only the human edits `STANDARDS.md`; if a rule in it gets in the way, tell them.
 - Questions to the human are decisions. Ask one at a time, each with your recommended answer. Get facts from the code with Explore subagents: asking the human what the code can answer wastes the attention their decisions need.
 - Read and change Run state only through `mdk`. A hook blocks `state.json` and `records.json`. When an `mdk` command fails it prints `mdk: <reason>`, and when the hook denies a tool call its reason starts `ml-dev-kit:`. Do what the reason says, or tell the human. Never make the change another way, such as Bash, `sed` or `cat`: the gates are how the human keeps control of the Run.
-- Commit with `git add -A && git commit -m "<short message>"`. The tree was clean when the Run began, so every change belongs to the Run. Never push.
+- Commit with `git add -A && git commit -m "<short message>"`. The tree was clean when the Run began, so every change belongs to the Run. If `git status --short` shows files that don't belong in history (secrets, dependencies, build output), add them to `.gitignore` first. Never push.
 - Keep every doc short, and say why rather than what. Long docs go unread, and the why is what the code cannot show.

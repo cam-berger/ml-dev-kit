@@ -92,3 +92,4 @@ _Avoid_: conventions, guidelines, style guide
 ## Flagged ambiguities
 
 - "one goal or feature per run" — resolved: a **Run** always has one **Goal**; the Goal may be a single **Feature** or split into several.
+- "stage" — `stage` in `state.json` and `mdk status` is the **Run**'s position (setup, breakdown, spec, build, escalated, done), not one of a **Feature**'s **Stages**.

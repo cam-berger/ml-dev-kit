@@ -169,6 +169,33 @@ class SkillFileTests(unittest.TestCase):
         for path, limit in limits.items():
             self.assertLessEqual(len(path.read_text(encoding="utf-8").splitlines()), limit, path.name)
 
+    def test_first_commit_keeps_secrets_and_dependencies_out(self):
+        # I8: `git add -A` on a fresh repo with no .gitignore commits .env, node_modules and .venv.
+        skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")
+        start = skill[skill.index("## Start"):skill.index("## Route by stage")]
+        for phrase in ("`git status --short`", "`.gitignore`"):
+            self.assertLess(start.index(phrase), start.index("git add -A"), phrase)
+        rules = skill[skill.index("## Rules"):]
+        commit_rule = next(line for line in rules.splitlines() if "git commit" in line)
+        self.assertIn("`.gitignore`", commit_rule)
+
+    def test_build_says_escalate_wins_over_a_failed_check(self):
+        # M10: a fix round cannot settle what only the human can decide.
+        build = (SKILL / "references/build.md").read_text(encoding="utf-8")
+        self.assertIn("even if the check printed `FAIL`", build)
+
+    def test_readme_covers_running_and_leaving_a_run(self):
+        # M7, M9: what the hooks do outside a Run, the suite cap, where to start, and how to abandon a Run.
+        readme = (REPO / "README.md").read_text(encoding="utf-8")
+        for phrase in ("every Claude Code session", "540 seconds", "project root", "docs/features/<goal-slug>/", "git branch -D mdk/<goal-slug>"):
+            self.assertIn(phrase, readme)
+
+    def test_context_flags_the_two_meanings_of_stage(self):
+        # M6: `stage` in mdk status is the Run's position, not one of a Feature's Stages.
+        context = (REPO / "CONTEXT.md").read_text(encoding="utf-8")
+        flagged = context[context.index("## Flagged ambiguities"):]
+        self.assertIn("setup, breakdown, spec, build, escalated, done", flagged)
+
     def test_notice_attributes_sources(self):
         n = (REPO / "NOTICE").read_text(encoding="utf-8")
         self.assertIn("Matt Pocock", n)

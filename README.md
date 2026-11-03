@@ -21,13 +21,15 @@ On Claude Code 2.1.275 or later this also works in one step:
 /ml-dev-kit:feature add user accounts
 ```
 
-The plugin asks you one decision at a time, each with its recommended answer. It looks facts up in the code itself. At each gate (your Standards, the Breakdown, each Spec) reply `approve`; that exact word is the only thing it accepts as an Approval. After a Spec's Approval it builds, tests and reviews the Feature without you, and comes back only if something needs your decision. Run `/ml-dev-kit:feature` with no Goal to resume a paused Run.
+The plugin asks you one decision at a time, each with its recommended answer. It looks facts up in the code itself. At each gate (your Standards, the Breakdown, each Spec) reply `approve`; that exact word is the only thing it accepts as an Approval. After a Spec's Approval it builds, tests and reviews the Feature without you, and comes back only if something needs your decision. Run `/ml-dev-kit:feature` with no Goal to resume a paused Run. Start Claude Code in the project root: the hooks find the Run from the folder Claude Code runs in.
 
-The gates are mechanical. A hook records your `approve`, source edits are blocked until the current Spec is approved, and a Feature is Done only when every Behaviour has a test named after it, the suite's output shows that test ran, and the suite passes.
+The gates are mechanical. A hook records your `approve`, source edits are blocked until the current Spec is approved, and a Feature is Done only when every Behaviour has a test named after it, the suite's output shows that test ran, and the suite passes. Once installed, the plugin's hooks run in every Claude Code session, and do nothing in a project with no active Run. The Done check stops the test suite after 540 seconds, so keep the test command under about 8 minutes.
+
+To abandon a Run, switch back to your own branch, delete `docs/features/<goal-slug>/` if it is still there, and delete the Run's branch: `git branch -D mdk/<goal-slug>`.
 
 ## What it writes into your project
 
-- `STANDARDS.md`: your rules for architecture, docs and testing, and the test command. Written with you on the first Run; after that, only you change it.
+- `STANDARDS.md`: your rules for architecture, docs and testing, and a test command that prints each test's name. Written with you on the first Run; after that, only you change it.
 - `CONTEXT.md`: the project's domain language, updated as terms are settled.
 - `docs/adr/`: decision records, only for decisions that are hard to reverse.
 - `docs/features/<goal-slug>/`: `breakdown.md`, one Spec per Feature (`NN-<feature-slug>.md`), `noticed.md` (problems seen outside a Feature and not fixed), and `state.json` and `records.json`, which only the plugin writes.

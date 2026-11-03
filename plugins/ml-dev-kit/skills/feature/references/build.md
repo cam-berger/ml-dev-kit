@@ -13,8 +13,8 @@ The packet for Feature `NN`: the Spec's path, `STANDARDS.md`, `CONTEXT.md` if it
 3. Dispatch `ml-dev-kit:reviewer` with the packet, the implementer's latest report, and the whole check output.
 4. Route on the Reviewer's last line, `Verdict:`.
    - `CLEAN`, and the check printed `PASS`: finish the Feature (step 5).
+   - `ESCALATE`, or any Deviation marked `ESCALATE`, even if the check printed `FAIL`: run `mdk escalate NN "<reason>"` and resolve it as below. A fix round cannot settle what only the human can decide. Write every Escalation reason so it stands on its own: a resumed Run sees only that text.
    - `FIX`, or the check printed `FAIL`: start a fix round. Send the Reviewer's findings and the check's problems to the implementer. Continue the same implementer if you can (SendMessage); otherwise dispatch a new one with the packet, the findings and its last report, so it can carry its lists forward. Handle its reply as in step 1, then repeat steps 2 to 4.
-   - `ESCALATE`, or any Deviation marked `ESCALATE`: run `mdk escalate NN "<reason>"` and resolve it as below. Write every Escalation reason so it stands on its own: a resumed Run sees only that text.
    - Fix rounds are capped at 3. If the third round still ends without `CLEAN` and `PASS`, run `mdk escalate NN "<the open findings>"`. Findings that survive three rounds need a decision, not another attempt.
 5. Finish the Feature:
    - Append each Deviation the Reviewer passed under the Spec's `## Deviations` heading, as `- <deviation> — <the Reviewer's one-line reason>`. Touch nothing above that heading: it is the approved body, and Done checks it again. If a later round sends you back here, replace these lines rather than repeat them.
