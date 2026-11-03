@@ -19,11 +19,13 @@ class ManifestTests(unittest.TestCase):
         m = json.loads((REPO / ".claude-plugin/marketplace.json").read_text())
         self.assertEqual(m["name"], "ml-dev-kit")
         self.assertEqual(m["plugins"][0]["source"], "./plugins/ml-dev-kit")
+        self.assertTrue(m["description"])
 
     def test_plugin_manifest(self):
         p = json.loads((PLUGIN / ".claude-plugin/plugin.json").read_text())
         self.assertEqual(p["name"], "ml-dev-kit")
         self.assertIn("version", p)
+        self.assertEqual(p["author"]["name"], "cam-berger")
 
     def test_make_repo_commits(self):  # helper sanity
         root = make_repo(Path(self.tmp), {"a.txt": "x"})

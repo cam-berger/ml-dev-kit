@@ -1,5 +1,6 @@
 {
   "name": "ml-dev-kit",
+  "description": "Claude Code plugins for codebases that stay explainable and easy to build on.",
   "owner": {
     "name": "cam-berger"
   },

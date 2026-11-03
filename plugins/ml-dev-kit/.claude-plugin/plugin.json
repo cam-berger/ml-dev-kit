@@ -1,5 +1,8 @@
 {
   "name": "ml-dev-kit",
   "version": "0.1.0",
-  "description": "Takes one Goal per Run through human-approved specification, architecture-first implementation, and testing."
+  "description": "Takes one Goal per Run through human-approved specification, architecture-first implementation, and testing.",
+  "author": {
+    "name": "cam-berger"
+  }
 }

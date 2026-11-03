@@ -1,12 +1,17 @@
 """Checks on the plugin's prompt files: frontmatter and the reply formats the orchestrator parses."""
 from __future__ import annotations
 
+import re
 import unittest
 from pathlib import Path
 
-from helpers import PLUGIN
+from helpers import PLUGIN, REPO
+from mdk.cli import _COMMANDS
+from mdk.docs import SPEC_SECTIONS, parse_standards, spec_problems
 
 AGENTS = ("implementer", "reviewer", "spec-checker")
+SKILL = PLUGIN / "skills/feature"
+REFERENCES = ("references/setup.md", "references/spec.md", "references/build.md")
 
 
 def frontmatter(path: Path) -> dict[str, str]:
@@ -65,6 +70,61 @@ class AgentFileTests(unittest.TestCase):
     def test_spec_checker_reply_format(self):
         body = (PLUGIN / "agents/spec-checker.md").read_text(encoding="utf-8")
         self.assertIn("nothing important left", body)
+
+
+def _skill_texts() -> dict[str, str]:
+    return {rel: (SKILL / rel).read_text(encoding="utf-8") for rel in ("SKILL.md", *REFERENCES)}
+
+
+class SkillFileTests(unittest.TestCase):
+    def test_feature_skill_is_user_only(self):
+        fm = frontmatter(SKILL / "SKILL.md")
+        self.assertEqual(fm["name"], "feature")
+        self.assertEqual(fm["disable-model-invocation"], "true")
+        self.assertIn("argument-hint", fm)
+        # Unquoted, [goal] parses as a YAML list rather than a hint string.
+        self.assertIn('argument-hint: "[goal]"', (SKILL / "SKILL.md").read_text(encoding="utf-8"))
+
+    def test_skill_references_exist(self):
+        for r in REFERENCES:
+            self.assertTrue((SKILL / r).is_file(), r)
+
+    def test_spec_template_sections_in_order(self):
+        t = (SKILL / "templates/spec.md").read_text(encoding="utf-8")
+        idx = [t.index(f"## {s}") for s in SPEC_SECTIONS]
+        self.assertEqual(idx, sorted(idx))
+
+    def test_spec_from_template_passes_mdk_checks(self):
+        # A Spec copied from the template must get past `mdk await spec` once NN is filled in.
+        t = (SKILL / "templates/spec.md").read_text(encoding="utf-8")
+        self.assertEqual(spec_problems(t.replace("NN", "01"), "01"), [])
+
+    def test_standards_template_parses(self):
+        parse_standards((SKILL / "templates/standards.md").read_text(encoding="utf-8"))
+
+    def test_build_reference_caps_fix_loop_at_3(self):
+        self.assertIn("3", (SKILL / "references/build.md").read_text(encoding="utf-8"))
+
+    def test_skill_names_only_real_mdk_commands(self):
+        for rel, text in _skill_texts().items():
+            for command in re.findall(r"`mdk (\w+)", text):
+                self.assertIn(command, _COMMANDS, f"{rel} names mdk {command}")
+
+    def test_skill_dispatches_only_shipped_agents(self):
+        for rel, text in _skill_texts().items():
+            for name in re.findall(r"ml-dev-kit:([a-z-]+)", text):
+                self.assertTrue(name == "feature" or name in AGENTS, f"{rel} dispatches {name}")
+
+    def test_skill_files_stay_short(self):
+        # Long prompts go unread; the limits come from the design's anti-goals.
+        limits = {SKILL / "SKILL.md": 80, REPO / "README.md": 60, **{SKILL / r: 100 for r in REFERENCES}}
+        for path, limit in limits.items():
+            self.assertLessEqual(len(path.read_text(encoding="utf-8").splitlines()), limit, path.name)
+
+    def test_notice_attributes_sources(self):
+        n = (REPO / "NOTICE").read_text(encoding="utf-8")
+        self.assertIn("Matt Pocock", n)
+        self.assertIn("Jesse Vincent", n)
 
 
 if __name__ == "__main__":
