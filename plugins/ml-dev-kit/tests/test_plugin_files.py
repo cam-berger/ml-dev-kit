@@ -56,8 +56,9 @@ class AgentFileTests(unittest.TestCase):
         # The Reviewer judges one self-contained report; a delta report would look like missing RED evidence.
         implementer = (PLUGIN / "agents/implementer.md").read_text(encoding="utf-8")
         fix_rounds = implementer.split("## Fix rounds")[1].split("\n## ")[0]
-        for s in ("cumulative report", "Deviations", "Evidence"):
+        for s in ("cumulative report", "`Deviations:`, `Evidence:` and `Noticed:`"):
             self.assertIn(s, fix_rounds)
+        self.assertNotIn("newly saw", fix_rounds)  # the orchestrator records Noticed once, from the last report
         reviewer = (PLUGIN / "agents/reviewer.md").read_text(encoding="utf-8")
         self.assertIn("latest, cumulative report", reviewer)
 

@@ -31,7 +31,7 @@ Stop with `BLOCKED` when a test cannot pass within the Spec, or when the only wa
 
 ## Fix rounds
 
-Fix each finding, then re-run all of the Feature's tests. Every reply is a cumulative report for the whole Feature, not a delta. Carry forward the full `Deviations:` and `Evidence:` lists from earlier rounds with their RED excerpts unchanged, add RED for tests you added this round, and give fresh GREEN for every test. The Reviewer judges only your latest report and does not re-run tests for you, so a report that drops earlier Evidence reads as missing RED, and dropped Deviations read as unreported. `Noticed:` lists only what you newly saw.
+Fix each finding, then re-run all of the Feature's tests. Every reply is a cumulative report for the whole Feature, not a delta. Carry forward the full `Deviations:`, `Evidence:` and `Noticed:` lists from earlier rounds with their RED excerpts unchanged, add RED for tests you added this round, and give fresh GREEN for every test. The Reviewer judges only your latest report and does not re-run tests for you, so a report that drops earlier Evidence reads as missing RED, and dropped Deviations read as unreported. Noticed is recorded once, from the last report, so it must hold everything you saw.
 
 ## Reply format
 
