@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 from helpers import BREAKDOWN_OK, STANDARDS_OK, commit, make_repo, spec_text, write
-from mdk.docs import DocError
+from mdk.docs import DocError, text_hash
 from mdk.run import (
     RunError,
     active_run,
@@ -307,6 +307,24 @@ class ApprovalTests(RunCase):
         with self.assertRaisesRegex(RunError, "01"):
             request_approval(run, "spec", "02")
 
+    def test_await_spec_follows_breakdown_order(self):
+        run = self.with_breakdown_approved()
+        run.spec_path("02").write_text(spec_text("02"), encoding="utf-8")
+        with self.assertRaisesRegex(RunError, "01"):  # 01 has not even started
+            request_approval(run, "spec", "02")
+        self.assertIsNone(run.awaiting)
+        self.assertIsNone(run.current)
+
+    def test_await_spec_cannot_step_around_an_escalated_feature(self):
+        run = self.building()
+        escalate(run, "01", "scope change")
+        run.spec_path("02").write_text(spec_text("02"), encoding="utf-8")
+        with self.assertRaisesRegex(RunError, "01"):
+            request_approval(run, "spec", "02")
+        self.assertEqual(run.stage, "escalated")
+        self.assertEqual(run.state["escalation"]["feature"], "01")
+        self.assertIsNone(run.awaiting)
+
     def test_await_spec_refuses_a_feature_that_is_building_or_done(self):
         run = self.building()
         with self.assertRaises(RunError):
@@ -416,6 +434,32 @@ class BuildTests(RunCase):
         with self.assertRaises(RunError):
             mark_done(run, "02")
         self.assertEqual(self.records(run)["done"], [])
+
+    def test_mark_done_refuses_a_spec_body_changed_after_approval(self):
+        run = self.building()
+        spec = run.spec_path("01")
+        spec.write_text(
+            spec.read_text(encoding="utf-8").replace("Anything not", "Everything but"), encoding="utf-8"
+        )
+        with self.assertRaisesRegex(RunError, "mdk escalate 01"):
+            mark_done(run, "01")
+        self.assertEqual(self.records(run)["done"], [])
+        self.assertEqual((run.stage, run.feature("01")["status"]), ("build", "building"))
+
+    def test_mark_done_accepts_deviations_added_during_build(self):
+        run = self.building()
+        spec = run.spec_path("01")
+        spec.write_text(spec.read_text(encoding="utf-8") + "- 01-B1: used a helper.\n", encoding="utf-8")
+        mark_done(run, "01")
+        self.assertEqual(run.feature("01")["status"], "done")
+        self.assertEqual(self.records(run)["done"][0]["sha256"], text_hash(spec.read_text(encoding="utf-8")))
+
+    def test_mark_done_ends_the_run_only_when_every_feature_is_done(self):
+        run = self.building()
+        run.feature("02")["status"] = "escalated"  # unreachable through the API; belt and braces
+        mark_done(run, "01")
+        self.assertEqual((run.stage, run.current), ("spec", "02"))
+        self.assertIsNotNone(active_run(self.root))
 
     def test_mark_done_advances_to_next_feature(self):
         run = self.building()

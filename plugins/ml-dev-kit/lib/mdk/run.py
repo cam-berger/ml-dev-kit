@@ -171,13 +171,18 @@ def escalate(run: Run, fid: str, reason: str) -> None:
 def mark_done(run: Run, fid: str) -> None:
     if run.stage != "build" or run.current != fid:
         raise RunError(f"feature {fid} is not being built (stage {run.stage}, current {run.current})")
+    if not is_approved(run, "spec", fid):
+        raise RunError(
+            f"the Spec body for feature {fid} changed after its Approval; "
+            f"run mdk escalate {fid} with the reason, so the human can approve the change"
+        )
     spec = _read(run.spec_path(fid))
     records = _records(run)
     # The whole Spec, not just its body: by Done the Deviations are filled in.
     records["done"].append({"feature": fid, "sha256": docs.text_hash(spec), "at": _now()})
     _save_records(run, records)
     run.feature(fid)["status"] = "done"
-    upcoming = _first_pending(run)
+    upcoming = _first_unfinished(run)
     run.state.update(stage="spec" if upcoming else "done", current=upcoming)
     _save_state(run)
 
@@ -199,7 +204,7 @@ def next_action(run: Run) -> str:
     if run.stage == "breakdown":
         if not is_approved(run, "breakdown"):
             return "Write breakdown.md with the human, then run mdk await breakdown."
-        first = _first_pending(run)
+        first = _first_unfinished(run)
         return (
             f"The breakdown is approved: write the Spec for feature {first} with the human, "
             f"then run mdk await spec {first}."
@@ -248,17 +253,18 @@ def _prepare_spec(run: Run, fid: str | None) -> None:
     status = run.feature(fid)["status"]
     if status not in ("pending", "escalated"):
         raise RunError(f"feature {fid} is {status}; only a pending or escalated feature can be approved")
-    building = [f["id"] for f in run.features if f["status"] == "building"]
-    if building:
-        raise RunError(f"feature {building[0]} is still building; finish or escalate it first")
+    first = _first_unfinished(run)
+    if first != fid:
+        blocker = run.feature(first)["status"]
+        raise RunError(f"feature {first} is {blocker} and must be done before feature {fid}")
     problems = docs.spec_problems(_read(run.spec_path(fid)), fid)
     if problems:
         raise RunError(f"the Spec for feature {fid} is not ready:\n- " + "\n- ".join(problems))
     run.state.update(stage="spec", current=fid)
 
 
-def _first_pending(run: Run) -> str | None:
-    return next((f["id"] for f in run.features if f["status"] == "pending"), None)
+def _first_unfinished(run: Run) -> str | None:
+    return next((f["id"] for f in run.features if f["status"] != "done"), None)
 
 
 def _document(run: Run, kind: str, fid: str | None) -> Path:
