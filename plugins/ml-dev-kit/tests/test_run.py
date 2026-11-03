@@ -212,7 +212,7 @@ class ApprovalTests(RunCase):
         record_approval(run)
         request_approval(run, "breakdown")
         self.assertEqual(run.stage, "breakdown")
-        self.assertEqual(run.awaiting, {"kind": "breakdown", "feature": None})
+        self.assertEqual(run.awaiting, {"kind": "breakdown", "feature": None, "sha256": current_hash(run, "breakdown")})
         self.assertEqual(
             run.features,
             [
@@ -257,6 +257,41 @@ class ApprovalTests(RunCase):
         self.assertIsNone(self.records(run)["approvals"][0]["feature"])
         self.assertIsNone(run.awaiting)
         self.assertEqual(self.saved(run), run.state)
+
+    def test_record_approval_refuses_a_document_changed_since_await(self):
+        # I5: the human must approve exactly the text mdk checked, not an edit made after `mdk await`.
+        root = self.repo()
+        run = init_run(root, SLUG, GOAL)
+        write(root, "STANDARDS.md", STANDARDS_OK)
+        request_approval(run, "standards")
+        write(root, "STANDARDS.md", "# Standards\n\nNothing mdk can read.\n")
+        self.assertIsNone(record_approval(run))
+        self.assertEqual(self.records(run)["approvals"], [])
+        self.assertEqual(run.awaiting["kind"], "standards")
+        write(root, "STANDARDS.md", STANDARDS_OK)
+        request_approval(run, "standards")
+        self.assertIsNotNone(record_approval(run))
+
+        run = self.with_breakdown_approved()
+        path = run.spec_path("01")
+        path.write_text(spec_text("01"), encoding="utf-8")
+        request_approval(run, "spec", "01")
+        path.write_text(spec_text("01").replace("- **01-B1**", "- B1").replace("- **01-B2**", "- B2"), encoding="utf-8")
+        before = self.records(run)
+        self.assertIsNone(record_approval(run))
+        self.assertEqual(self.records(run), before)
+        self.assertFalse(is_approved(run, "spec", "01"))
+        commit(self.root, "spec")
+        with self.assertRaises(RunError):
+            begin_build(run, "01")
+
+    def test_record_approval_allows_deviations_edits_since_await(self):
+        run = self.with_breakdown_approved()
+        path = run.spec_path("01")
+        path.write_text(spec_text("01"), encoding="utf-8")
+        request_approval(run, "spec", "01")
+        path.write_text(spec_text("01") + "- note\n", encoding="utf-8")
+        self.assertIsNotNone(record_approval(run))
 
     def test_record_approval_without_awaiting_returns_none(self):
         run = self.started()
@@ -319,7 +354,7 @@ class ApprovalTests(RunCase):
         run.spec_path("01").write_text(spec_text("01"), encoding="utf-8")
         request_approval(run, "spec", "01")
         self.assertEqual((run.stage, run.current), ("spec", "01"))
-        self.assertEqual(run.awaiting, {"kind": "spec", "feature": "01"})
+        self.assertEqual(run.awaiting, {"kind": "spec", "feature": "01", "sha256": current_hash(run, "spec", "01")})
         self.assertEqual(self.saved(run), run.state)
 
     def test_await_spec_refuses_while_another_feature_builds(self):

@@ -14,7 +14,7 @@ The Spec path, `STANDARDS.md`, `CONTEXT.md`, the base commit, and on a fix round
 ## Rules
 
 - Work test-first at the seams named in the Spec's "Interface and seams", one Behaviour at a time. A test written after its code describes the code instead of the Behaviour, and a test at an unagreed seam breaks on refactors.
-- Name each test with its Behaviour ID, such as `test_01_B2_rejects_empty_name` for `01-B2`. `mdk check` matches IDs to test names, and a Behaviour with no named test blocks Done.
+- Name each test with its Behaviour ID, such as `test_01_B2_rejects_empty_name` for `01-B2` (`test_01_b2_...` also counts). `mdk check` looks for each ID in the test files and in the test command's output, so a Behaviour whose test is missing, or never runs, blocks Done.
 - Run each new test with the Standards test command and keep its failing output before you write the code that passes it. It must fail for the reason the Behaviour describes, not on an import error. The Reviewer checks this evidence, and it is the only proof the test can fail.
 - Write only enough code to pass the current test, then take the next Behaviour. Tests written in bulk check behaviour you imagined.
 - Reshape only existing code the Feature touches, and follow `STANDARDS.md`. Wider changes bury the diff and are a separate Goal. Report problems elsewhere under Noticed.

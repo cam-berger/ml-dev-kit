@@ -17,7 +17,7 @@ How code in this project is built. Build follows these rules, the Reviewer enfor
 
 ## Testing
 
-<!-- The command runs the whole suite and exits 0 when it passes. Test files lists globs, each in its own backticks, comma-separated, such as `tests/**/*.py`, `src/**/*_test.py`. -->
+<!-- The command runs the whole suite, prints each test's name (pytest and unittest need -v), and exits 0 when it passes: Done looks for each Behaviour ID in its output. Test files lists globs, each in its own backticks, comma-separated, such as `tests/**/*.py`, `src/**/*_test.py`. -->
 Test command: `<fill in>`
 Test files: `<glob>`
 

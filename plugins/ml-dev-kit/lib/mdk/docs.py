@@ -13,6 +13,7 @@ SPEC_SECTIONS = ("Intent", "Behaviours", "Interface and seams", "Out of scope", 
 _BEFORE = r"(?<![0-9A-Za-z])"
 _AFTER = r"(?![0-9])"
 _BEHAVIOUR_ID = re.compile(_BEFORE + r"(\d{2})-B(\d+)" + _AFTER)
+_LIST_ITEM = re.compile(r"^(?:[-*+]|\d+[.)])\s")
 _BREAKDOWN_LINE = re.compile(r"^(\d{2})\. ([a-z0-9]+(?:-[a-z0-9]+)*) [—-] (.+)$")
 _TEST_COMMAND = re.compile(r"^Test command:\s*`([^`]+)`\s*$")
 _TEST_FILES = re.compile(r"^Test files:\s*(.+)$")
@@ -48,22 +49,34 @@ def _sha256(lines: list[str]) -> str:
     return hashlib.sha256("\n".join(lines).rstrip().encode("utf-8")).hexdigest()
 
 
+def _heading(line: str) -> str | None:
+    """The name of a `## ` section heading. Every reading of the sections goes through here, so they agree."""
+    return line[3:].strip() if line.startswith("## ") else None
+
+
 def _section_names(lines: list[str]) -> list[str]:
-    return [line[3:].strip() for line in lines if line.startswith("## ")]
+    return [name for name in map(_heading, lines) if name is not None]
+
+
+def _section(lines: list[str], name: str) -> list[str]:
+    found, inside = [], False
+    for line in lines:
+        heading = _heading(line)
+        if heading is not None:
+            inside = heading == name
+        elif inside:
+            found.append(line)
+    return found
 
 
 def behaviour_ids(text: str) -> list[str]:
-    found, inside = [], False
-    for line in _lines(text):
-        if line.startswith("## "):
-            inside = line[3:].strip() == "Behaviours"
-        elif inside:
-            found += [m.group(0) for m in _BEHAVIOUR_ID.finditer(line)]
+    found = [m.group(0) for line in _section(_lines(text), "Behaviours") for m in _BEHAVIOUR_ID.finditer(line)]
     return list(dict.fromkeys(found))
 
 
 def spec_problems(text: str, feature_id: str) -> list[str]:
-    names = _section_names(_lines(text))
+    lines = _lines(text)
+    names = _section_names(lines)
     problems = [f"missing section: ## {s}" for s in SPEC_SECTIONS if s not in names]
     in_spec = [n for n in names if n in SPEC_SECTIONS]
     if "Deviations" in names and names[-1] != "Deviations":
@@ -76,14 +89,26 @@ def spec_problems(text: str, feature_id: str) -> list[str]:
         problems.append(f"## Behaviours has no behaviour IDs such as {feature_id}-B1")
     prefix = feature_id + "-"
     problems += [f"behaviour {i} must start with {prefix}" for i in ids if not i.startswith(prefix)]
-    return problems
+    return problems + _behaviour_line_problems(_section(lines, "Behaviours"), feature_id)
+
+
+def _behaviour_line_problems(section: list[str], feature_id: str) -> list[str]:
+    # A top-level list item is one Behaviour, and its first ID is its own; indented items detail the one above.
+    problems, own = [], []
+    for item in filter(_LIST_ITEM.match, section):
+        found = _BEHAVIOUR_ID.search(item)
+        if found:
+            own.append(found.group(0))
+        else:
+            problems.append(f"this Behaviours line has no ID such as {feature_id}-B1: {item}")
+    repeated = dict.fromkeys(i for i in own if own.count(i) > 1)
+    return problems + [f"behaviour ID {i} is used by more than one line" for i in repeated]
 
 
 def spec_body_hash(text: str) -> str:
     lines = _lines(text)
-    if "## Deviations" in lines:
-        lines = lines[: lines.index("## Deviations")]
-    return _sha256(lines)
+    cut = next((n for n, line in enumerate(lines) if _heading(line) == "Deviations"), len(lines))
+    return _sha256(lines[:cut])
 
 
 def text_hash(text: str) -> str:
@@ -123,6 +148,7 @@ def glob_to_regex(pattern: str) -> re.Pattern[str]:
 
 
 def mentions_id(text: str, behaviour_id: str) -> bool:
-    feature, k = behaviour_id.split("-", 1)
-    pattern = _BEFORE + re.escape(feature) + "[-_]" + re.escape(k) + _AFTER
+    """Whether text names the Behaviour, as `01-B2`, `01_B2` or `01_b2`: test names are often snake_case."""
+    feature, k = _BEHAVIOUR_ID.fullmatch(behaviour_id).groups()
+    pattern = _BEFORE + feature + "[-_][Bb]" + k + _AFTER
     return re.search(pattern, text) is not None

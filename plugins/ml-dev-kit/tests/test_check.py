@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
+import sys
 import tempfile
 import time
 import unittest
@@ -9,9 +11,17 @@ from pathlib import Path
 
 from helpers import build_ready_repo, commit, spec_text, write
 from mdk.check import CheckResult, check_feature
+from mdk.run import current_hash
 
-GREEN = "python3 -c \"print('ok')\""
-RED = "python3 -c \"import sys; print('boom'); sys.exit(1)\""
+NAMES = "print('test_01_B1 ... ok'); print('test_01_B2 ... ok')"
+GREEN = f"python3 -c \"{NAMES}\""
+RED = f"python3 -c \"import sys; {NAMES}; print('boom'); sys.exit(1)\""
+UNNAMED = ["test output never names 01-B1 (did it run?)", "test output never names 01-B2 (did it run?)"]
+UNITTEST = f"\"{sys.executable}\" -m unittest discover -s tests"
+CASES = (
+    "import unittest\n\n\nclass SignUp(unittest.TestCase):\n"
+    "    def test_01_B1(self):\n        pass\n\n    def test_01_b2_lowercase(self):\n        pass\n"
+)
 SLOW = "python3 -c \"import time; time.sleep(5)\""
 BOTH_IDS = "def test_01_B1(): pass\ndef test_01_B2(): pass\n"
 
@@ -82,9 +92,66 @@ class CheckFeatureTests(unittest.TestCase):
         self.assertIn("boom", r.output_tail)
 
     def test_output_tail_is_last_40_lines(self):
-        _, run = self.ready("python3 -c \"[print(n) for n in range(100)]\"")
+        _, run = self.ready(f"python3 -c \"{NAMES}; [print(n) for n in range(100)]\"")
         lines = check_feature(run, "01").output_tail.split("\n")
         self.assertEqual((lines[0], lines[-1], len(lines)), ("60", "99", 40))
+
+    def test_fails_when_test_output_never_names_a_behaviour(self):
+        # I4: a green suite that never ran the Feature's tests proves nothing.
+        _, run = self.ready("python3 -c \"print('Ran 0 tests'); print('OK')\"")
+        r = check_feature(run, "01")
+        self.assertFalse(r.passed)
+        self.assertEqual(r.problems, UNNAMED)
+
+    def test_zero_tests_collected_fails(self):
+        # The reviewer's probe: unittest does not collect bare functions. Before Python 3.12 it then exits 0;
+        # `; exit 0` pins that on every version.
+        tests = "def test_01_B1(): assert False\ndef test_01_B2(): assert False\n"
+        _, run = self.ready(UNITTEST + " -v; exit 0", tests=tests)
+        r = check_feature(run, "01")
+        self.assertIn("Ran 0 tests", r.output_tail)
+        self.assertEqual(r.problems, UNNAMED)
+
+    def test_a_quiet_test_command_fails_because_it_names_no_test(self):
+        _, run = self.ready(UNITTEST, tests=CASES)
+        self.assertEqual(check_feature(run, "01").problems, UNNAMED)
+
+    def test_passes_when_a_verbose_runner_names_each_test(self):
+        _, run = self.ready(UNITTEST + " -v", tests=CASES)
+        r = check_feature(run, "01")
+        self.assertTrue(r.passed, r.problems)
+
+    def test_test_names_are_read_from_the_whole_output_not_the_tail(self):
+        _, run = self.ready(f"python3 -c \"{NAMES}; [print(n) for n in range(100)]\"")
+        r = check_feature(run, "01")
+        self.assertTrue(r.passed, r.problems)
+        self.assertNotIn("test_01_B1", r.output_tail)
+
+    def test_fails_when_the_spec_lists_no_behaviour_ids(self):
+        # I5: with no IDs there is nothing for a test to cover, so Done would prove nothing.
+        root, run = self.ready()
+        run.spec_path("01").write_text(spec_text("01", behaviours=()), encoding="utf-8")
+        records = json.loads((run.dir / "records.json").read_text(encoding="utf-8"))
+        records["approvals"].append({"kind": "spec", "feature": "01", "sha256": current_hash(run, "spec", "01"), "at": "x"})
+        (run.dir / "records.json").write_text(json.dumps(records), encoding="utf-8")
+        self.assertEqual(check_feature(run, "01").problems, ["Spec 01 lists no Behaviour IDs, so no test can show it was built"])
+
+    def test_test_command_gets_no_stdin(self):
+        # The hook's or the shell's stdin must not reach the suite: a test that reads it would hang or vary.
+        reads = "import sys; data = sys.stdin.read(); " + NAMES + "; sys.exit(3 if data else 0)"
+        _, run = self.ready(f"python3 -c \"{reads}\"")
+        read_fd, write_fd = os.pipe()
+        os.write(write_fd, b"not for the suite")
+        os.close(write_fd)
+        saved = os.dup(0)
+        try:
+            os.dup2(read_fd, 0)
+            r = check_feature(run, "01")
+        finally:
+            os.dup2(saved, 0)
+            os.close(saved)
+            os.close(read_fd)
+        self.assertTrue(r.passed, r.problems)
 
     def test_fails_when_spec_changed_after_approval(self):
         _, run = self.ready()
@@ -139,10 +206,10 @@ class CheckFeatureTests(unittest.TestCase):
         _, run = self.ready("definitely-not-a-command-xyz")
         r = check_feature(run, "01")
         self.assertFalse(r.passed)
-        self.assertEqual(r.problems, ["test command failed (exit 127)"])
+        self.assertEqual(r.problems, ["test command failed (exit 127)", *UNNAMED])
 
     def test_collects_every_problem(self):
-        _, run = self.ready(RED, tests=None)
+        _, run = self.ready("python3 -c \"import sys; sys.exit(1)\"", tests=None)
         path = run.spec_path("01")
         path.write_text(path.read_text().replace("Users can do", "Users can also do"), encoding="utf-8")
         self.assertEqual(check_feature(run, "01").problems, [
@@ -151,6 +218,7 @@ class CheckFeatureTests(unittest.TestCase):
             "no test names 01-B1",
             "no test names 01-B2",
             "test command failed (exit 1)",
+            *UNNAMED,
         ])
 
     def test_missing_standards_is_a_problem_not_a_crash(self):

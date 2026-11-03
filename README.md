@@ -23,7 +23,7 @@ On Claude Code 2.1.275 or later this also works in one step:
 
 The plugin asks you one decision at a time, each with its recommended answer. It looks facts up in the code itself. At each gate (your Standards, the Breakdown, each Spec) reply `approve`; that exact word is the only thing it accepts as an Approval. After a Spec's Approval it builds, tests and reviews the Feature without you, and comes back only if something needs your decision. Run `/ml-dev-kit:feature` with no Goal to resume a paused Run.
 
-The gates are mechanical. A hook records your `approve`, source edits are blocked until the current Spec is approved, and a Feature is Done only when every Behaviour has a test named after it and the test suite passes.
+The gates are mechanical. A hook records your `approve`, source edits are blocked until the current Spec is approved, and a Feature is Done only when every Behaviour has a test named after it, the suite's output shows that test ran, and the suite passes.
 
 ## What it writes into your project
 

@@ -114,6 +114,14 @@ class SkillFileTests(unittest.TestCase):
         self.assertIn("its own backticks", t)
         self.assertIn("`tests/**/*.py`, `src/**/*_test.py`", t)
 
+    def test_standards_need_a_test_command_that_names_each_test(self):
+        # R16: Done looks for each Behaviour ID in the command's output, so a quiet runner fails every Feature.
+        for rel in ("templates/standards.md", "references/setup.md"):
+            with self.subTest(rel=rel):
+                self.assertIn("prints each test's name", (SKILL / rel).read_text(encoding="utf-8"))
+        setup = (SKILL / "references/setup.md").read_text(encoding="utf-8")
+        self.assertLess(setup.index("Check that its output names each test it ran"), setup.index("`mdk await standards`"))
+
     def test_setup_checks_machine_lines_before_they_lock(self):
         # After setup STANDARDS.md is the human's, so a broken line would only show in Build, unfixable.
         setup = (SKILL / "references/setup.md").read_text(encoding="utf-8")

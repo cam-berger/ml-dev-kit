@@ -67,6 +67,30 @@ class SpecProblemTests(unittest.TestCase):
     def test_spec_problems_accept_crlf(self):
         self.assertEqual(spec_problems(spec_text().replace("\n", "\r\n"), "01"), [])
 
+    def test_spec_problems_flag_behaviour_lines_without_an_id(self):
+        # I5: a line like `- **B3** —` would otherwise be a Behaviour that no test is ever asked for.
+        for line in ("- **B3** — Admins see a report.", "* Admins see a report.", "3. Admins see a report."):
+            with self.subTest(line=line):
+                t = spec_text().replace("\n## Interface", f"{line}\n\n## Interface")
+                self.assertEqual(spec_problems(t, "01"), [f"this Behaviours line has no ID such as 01-B1: {line}"])
+
+    def test_spec_problems_allow_detail_lines_and_references(self):
+        t = spec_text().replace(
+            "\n## Interface",
+            "  - for example, an empty name\n- **01-B3** — like 01-B1, for admins.\nPlain text under the list.\n\n## Interface",
+        )
+        self.assertEqual(spec_problems(t, "01"), [])
+
+    def test_spec_problems_flag_duplicate_ids(self):
+        t = spec_text().replace("\n## Interface", "- **01-B1** — Something else.\n\n## Interface")
+        self.assertEqual(spec_problems(t, "01"), ["behaviour ID 01-B1 is used by more than one line"])
+
+    def test_sections_and_the_deviations_cut_read_headings_the_same_way(self):
+        # I5: a heading the section check accepts must also end the hashed body, or Deviations void the Approval.
+        t = spec_text().replace("## Deviations", "##  Deviations")
+        self.assertEqual(spec_problems(t, "01"), [])
+        self.assertEqual(spec_body_hash(t), spec_body_hash(t + "- Used a queue.\n"))
+
 
 class HashTests(unittest.TestCase):
     def test_body_hash_ignores_deviations(self):
@@ -129,7 +153,7 @@ class StandardsTests(unittest.TestCase):
     def test_parse_standards(self):
         self.assertEqual(
             parse_standards(STANDARDS_OK),
-            Standards("python3 -m unittest discover -s tests", ("tests/**/*.py",)),
+            Standards("python3 -m unittest discover -s tests -v", ("tests/**/*.py",)),
         )
 
     def test_parse_standards_several_globs(self):
@@ -166,6 +190,13 @@ class MatchingTests(unittest.TestCase):
         self.assertTrue(mentions_id("# 01-B2", "01-B2"))
         self.assertFalse(mentions_id("01-B21", "01-B2"))
         self.assertFalse(mentions_id("101-B2", "01-B2"))
+
+    def test_mentions_id_accepts_a_lowercase_b(self):
+        # M5: linters want snake_case test names, and pytest prints them as written.
+        self.assertTrue(mentions_id("def test_01_b2_rejects_empty_name():", "01-B2"))
+        self.assertTrue(mentions_id("tests/test_a.py::test_01_b2 PASSED", "01-B2"))
+        self.assertFalse(mentions_id("test_01_b21", "01-B2"))
+        self.assertFalse(mentions_id("test_01_c2", "01-B2"))
 
 
 if __name__ == "__main__":

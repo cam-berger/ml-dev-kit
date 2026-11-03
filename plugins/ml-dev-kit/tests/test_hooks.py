@@ -400,6 +400,31 @@ class PromptTests(HookCase):
         self.assertEqual(saved, ((run.dir / "records.json").read_text(), (run.dir / "state.json").read_text()))
         self.assertEqual(self.records(run)["approvals"][-1]["kind"], "breakdown")
 
+    def test_prompt_explains_a_document_changed_since_await(self):
+        # I5: the reviewer's probe: IDs dropped from the Spec after `mdk await`, then the human approves.
+        root, run = self.spec_stage()
+        spec = run.spec_path("01")
+        spec.write_text(spec_text("01").replace("- **01-B1**", "- B1").replace("## Out of scope\n", ""), encoding="utf-8")
+        before = (run.dir / "records.json").read_text()
+        result = on_prompt(prompt(root, "approve"))
+        self.assertEqual(result, {"hookSpecificOutput": {
+            "hookEventName": "UserPromptSubmit",
+            "additionalContext": (
+                f"ml-dev-kit: {RUN_DIR}/01-sign-up.md changed since `mdk await`, so the Approval was not recorded; "
+                "run `mdk await spec 01` again and ask the human to approve"
+            ),
+        }})
+        self.assertEqual((run.dir / "records.json").read_text(), before)
+
+    def test_prompt_names_each_kind_of_document_that_changed(self):
+        root, run = self.setup_stage()
+        write(root, "STANDARDS.md", STANDARDS_OK)
+        request_approval(run, "standards")
+        write(root, "STANDARDS.md", STANDARDS_OK + "\nOne more rule.\n")
+        context = on_prompt(prompt(root, "approve"))["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("STANDARDS.md changed since `mdk await`", context)
+        self.assertIn("run `mdk await standards` again", context)
+
     def test_prompt_ignores_when_nothing_awaiting(self):
         root, run = self.spec_stage()
         record_approval(run)

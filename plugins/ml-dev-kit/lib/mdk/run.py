@@ -106,11 +106,10 @@ def init_run(root: Path, slug: str, goal: str) -> Run:
 
 
 def current_hash(run: Run, kind: str, fid: str | None = None) -> str | None:
-    path = _document(run, kind, fid)
+    path = document(run, kind, fid)
     if not path.is_file():
         return None
-    text = path.read_text(encoding="utf-8")
-    return docs.spec_body_hash(text) if kind == "spec" else docs.text_hash(text)
+    return _hash(kind, path.read_text(encoding="utf-8"))
 
 
 def is_approved(run: Run, kind: str, fid: str | None = None) -> bool:
@@ -124,24 +123,28 @@ def is_approved(run: Run, kind: str, fid: str | None = None) -> bool:
 
 def request_approval(run: Run, kind: str, fid: str | None = None) -> None:
     if kind == "standards":
-        _prepare_standards(run)
+        text = _prepare_standards(run)
     elif kind == "breakdown":
-        _prepare_breakdown(run)
+        text = _prepare_breakdown(run)
     elif kind == "spec":
-        _prepare_spec(run, fid)
+        text = _prepare_spec(run, fid)
     else:
         raise _unknown_kind(kind)
-    run.state["awaiting"] = {"kind": kind, "feature": fid if kind == "spec" else None}
+    # The hash of the text just checked: an Approval covers that text, not a later edit.
+    run.state["awaiting"] = {"kind": kind, "feature": fid if kind == "spec" else None, "sha256": _hash(kind, text)}
     _save_state(run)
 
 
 def record_approval(run: Run) -> dict | None:
+    """Record the awaited Approval, or return None when nothing awaits or the document changed since `mdk await`."""
     waiting = run.awaiting
     if waiting is None:
         return None
     sha = current_hash(run, waiting["kind"], waiting["feature"])
     if sha is None:
         raise RunError(f"cannot record the Approval: the {waiting['kind']} document is missing")
+    if sha != waiting.get("sha256"):
+        return None
     record = {"kind": waiting["kind"], "feature": waiting["feature"], "sha256": sha, "at": _now()}
     records = _records(run)
     records["approvals"].append(record)
@@ -237,25 +240,29 @@ def next_action(run: Run) -> str:
     return "Run complete."
 
 
-def _prepare_standards(run: Run) -> None:
+def _prepare_standards(run: Run) -> str:
     if run.stage != "setup":
         raise RunError(f"STANDARDS.md is approved during setup, but this Run is in stage {run.stage}")
-    docs.parse_standards(_read(run.root / "STANDARDS.md"))
+    text = _read(run.root / "STANDARDS.md")
+    docs.parse_standards(text)
+    return text
 
 
-def _prepare_breakdown(run: Run) -> None:
+def _prepare_breakdown(run: Run) -> str:
     if not (run.stage == "breakdown" or (run.stage == "setup" and is_approved(run, "standards"))):
         raise RunError("the breakdown comes after an approved STANDARDS.md")
-    planned = docs.parse_breakdown(_read(run.dir / "breakdown.md"))
+    text = _read(run.dir / "breakdown.md")
+    planned = docs.parse_breakdown(text)
     if any(f["status"] != "pending" for f in run.features):
         raise RunError("the breakdown can no longer change: a feature has already started")
     run.state["features"] = [
         {"id": p.id, "slug": p.slug, "status": "pending", "base": None} for p in planned
     ]
     run.state["stage"] = "breakdown"
+    return text
 
 
-def _prepare_spec(run: Run, fid: str | None) -> None:
+def _prepare_spec(run: Run, fid: str | None) -> str:
     if fid is None:
         raise RunError("a Spec Approval needs a feature ID")
     if not is_approved(run, "breakdown"):
@@ -267,17 +274,19 @@ def _prepare_spec(run: Run, fid: str | None) -> None:
     if first != fid:
         blocker = run.feature(first)["status"]
         raise RunError(f"feature {first} is {blocker} and must be done before feature {fid}")
-    problems = docs.spec_problems(_read(run.spec_path(fid)), fid)
+    text = _read(run.spec_path(fid))
+    problems = docs.spec_problems(text, fid)
     if problems:
         raise RunError(f"the Spec for feature {fid} is not ready:\n- " + "\n- ".join(problems))
     run.state.update(stage="spec", current=fid)
+    return text
 
 
 def _first_unfinished(run: Run) -> str | None:
     return next((f["id"] for f in run.features if f["status"] != "done"), None)
 
 
-def _document(run: Run, kind: str, fid: str | None) -> Path:
+def document(run: Run, kind: str, fid: str | None = None) -> Path:
     if kind == "standards":
         return run.root / "STANDARDS.md"
     if kind == "breakdown":
@@ -287,6 +296,10 @@ def _document(run: Run, kind: str, fid: str | None) -> Path:
             raise RunError("a Spec Approval needs a feature ID")
         return run.spec_path(fid)
     raise _unknown_kind(kind)
+
+
+def _hash(kind: str, text: str) -> str:
+    return docs.spec_body_hash(text) if kind == "spec" else docs.text_hash(text)
 
 
 def _unknown_kind(kind: str) -> RunError:

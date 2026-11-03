@@ -4,7 +4,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .run import Run, RunError, active_run, has_runs, is_approved, next_action, project_root, record_approval
+from .run import (
+    Run, RunError, active_run, document, has_runs, is_approved, next_action, project_root, record_approval,
+)
 
 APPROVE_RE = re.compile(r"^\s*approved?\s*[.!]?\s*$", re.IGNORECASE)
 
@@ -58,14 +60,18 @@ def on_prompt(event: dict) -> dict | None:
     if not APPROVE_RE.match(event.get("prompt") or ""):
         return None
     run = _active(event)
-    record = record_approval(run) if run else None
-    if record is None:
+    waiting = run.awaiting if run else None
+    if waiting is None:
         return None
-    subject = f"{record['kind']} {record['feature']}" if record["feature"] else record["kind"]
-    return {"hookSpecificOutput": {
-        "hookEventName": "UserPromptSubmit",
-        "additionalContext": f"ml-dev-kit: recorded the human's Approval of {subject} (sha256 {record['sha256'][:12]})",
-    }}
+    subject = " ".join(filter(None, (waiting["kind"], waiting["feature"])))
+    record = record_approval(run)
+    if record is None:
+        doc = document(run, waiting["kind"], waiting["feature"]).relative_to(run.root).as_posix()
+        return _context(
+            f"{doc} changed since `mdk await`, so the Approval was not recorded; "
+            f"run `mdk await {subject}` again and ask the human to approve"
+        )
+    return _context(f"recorded the human's Approval of {subject} (sha256 {record['sha256'][:12]})")
 
 
 def fails_closed(event: object) -> bool:
@@ -108,6 +114,10 @@ def _source_edits_allowed(run: Run) -> bool:
     if run.stage == "setup":
         return is_approved(run, "standards")
     return run.stage == "build" and is_approved(run, "spec", run.current)
+
+
+def _context(note: str) -> dict:
+    return {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": f"ml-dev-kit: {note}"}}
 
 
 def _deny(reason: str) -> dict:

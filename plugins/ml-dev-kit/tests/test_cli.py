@@ -123,6 +123,15 @@ class FlowTests(CliCase):
         self.assertIn("- no test files match tests/**/*.py", failed.stdout)
         self.assertEqual((Path(root) / RUN_DIR / "state.json").read_text(), before)
 
+    def test_done_needs_the_test_output_to_name_each_behaviour(self):
+        # I4 through the CLI: unittest does not collect bare functions, so their names never reach the output.
+        root = self.building()
+        write(root, "tests/test_a.py", "def test_01_B1():\n    pass\n\n\ndef test_01_B2():\n    pass\n")
+        failed = mdk(root, "done", "01")
+        self.assertEqual(failed.returncode, 1)
+        self.assertIn("- test output never names 01-B1 (did it run?)", failed.stdout)
+        self.assertEqual(self.status(root)["stage"], "build")
+
     def test_escalate_joins_the_reason(self):
         root = self.building()
         self.ok(root, "escalate", "01", "cannot", "meet", "01-B2")
@@ -134,7 +143,9 @@ class FlowTests(CliCase):
         root = self.building()
         self.ok(root, "escalate", "01", "needs", "a", "change")
         self.ok(root, "await", "spec")
-        self.assertEqual(self.status(root)["awaiting"], {"kind": "spec", "feature": "01"})
+        awaiting = self.status(root)["awaiting"]
+        self.assertEqual((awaiting["kind"], awaiting["feature"]), ("spec", "01"))
+        self.assertRegex(awaiting["sha256"], r"^[0-9a-f]{64}$")
 
     def test_await_spec_without_a_feature_exits_2(self):
         done = mdk(self.started(), "await", "spec")

@@ -4,7 +4,7 @@
 <!-- Why this Feature exists, in a few sentences. The Reviewer judges every Deviation against it. -->
 
 ## Behaviours
-<!-- One line per observable outcome. IDs never change once approved; tests are named after them. -->
+<!-- One line per observable outcome, each starting with its own ID. IDs never change once approved; tests are named after them. -->
 - **NN-B1** — <observable outcome>
 
 ## Interface and seams

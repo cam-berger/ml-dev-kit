@@ -20,7 +20,7 @@ STANDARDS_OK = """\
 
 ## Testing
 
-Test command: `python3 -m unittest discover -s tests`
+Test command: `python3 -m unittest discover -s tests -v`
 Test files: `tests/**/*.py`
 """
 
