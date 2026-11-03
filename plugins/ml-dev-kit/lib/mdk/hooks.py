@@ -40,6 +40,12 @@ def gate(event: dict) -> dict | None:
         return None
     if _source_edits_allowed(run):
         return None
+    if run.stage == "build":
+        return _deny(
+            f"the Spec for feature {run.current} is missing or its body changed after its Approval. "
+            f"Restore the approved Spec body, or run `mdk escalate {run.current} <reason>` "
+            "so the human can approve the change."
+        )
     return _deny(f"source edits are not allowed yet. {next_action(run)}")
 
 

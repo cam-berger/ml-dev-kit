@@ -145,7 +145,18 @@ class GateTests(HookCase):
         path.write_text(path.read_text(encoding="utf-8").replace("do the thing", "do another thing"), encoding="utf-8")
         result = gate(edit(root, "src/a.py"))
         self.assertEqual(decision(result), "deny")
-        self.assertIn("Build feature 01", reason(result))
+        self.assertTrue(reason(result).startswith("ml-dev-kit: "))
+        self.assertIn("changed after its Approval", reason(result))
+        self.assertIn("mdk escalate 01", reason(result))
+        self.assertNotIn("Build feature", reason(result))
+
+    def test_gate_denies_in_build_when_spec_is_missing(self):
+        root, run = self.build_stage()
+        run.spec_path("01").unlink()
+        result = gate(edit(root, "src/a.py"))
+        self.assertEqual(decision(result), "deny")
+        self.assertIn("missing", reason(result))
+        self.assertIn("mdk escalate 01", reason(result))
 
     def test_gate_allows_after_deviations_changed(self):
         root, run = self.build_stage()
