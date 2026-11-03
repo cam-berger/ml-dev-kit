@@ -128,7 +128,7 @@ def _gate() -> int:
         event = json.load(sys.stdin)
         return _emit(hooks.gate(event))
     except Exception as err:  # a broken gate must not wave edits through inside a project that has Runs
-        if not _has_runs(event):
+        if not hooks.fails_closed(event):
             return 0
         print(f"ml-dev-kit: hook error: {err}", file=sys.stderr)
         return 2
@@ -146,16 +146,6 @@ def _emit(result: dict | None) -> int:
     if result is not None:
         print(json.dumps(result))
     return 0
-
-
-def _has_runs(event: object) -> bool:
-    cwd = event.get("cwd") if isinstance(event, dict) else None
-    start = Path(cwd) if isinstance(cwd, str) and cwd else Path.cwd()
-    try:
-        start = project_root(start)
-    except RunError:
-        pass
-    return (start / "docs" / "features").is_dir()
 
 
 _COMMANDS = {

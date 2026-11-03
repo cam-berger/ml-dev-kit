@@ -156,9 +156,30 @@ class DiscoveryTests(RunCase):
         run = self.started()
         other = self.root / "docs" / "features" / "other"
         other.mkdir()
-        shutil.copy(run.dir / "state.json", other / "state.json")
+        for name in ("state.json", "records.json"):
+            shutil.copy(run.dir / name, other / name)
         with self.assertRaisesRegex(RunError, "accounts.*other"):
             active_run(self.root)
+
+    def test_active_run_ignores_a_state_json_without_records(self):
+        # M1: every Run directory holds records.json from init on, so a lone state.json belongs to something else.
+        write(self.root, "docs/features/widgets/state.json", json.dumps({"enabled": True}))
+        self.assertIsNone(active_run(self.root))
+
+    def test_active_run_reports_state_without_mdks_shape(self):
+        for state in ({"enabled": True}, [], "x"):
+            with self.subTest(state=state):
+                write(self.root, "docs/features/widgets/state.json", json.dumps(state))
+                write(self.root, "docs/features/widgets/records.json", json.dumps({"approvals": [], "done": []}))
+                with self.assertRaisesRegex(RunError, "widgets/state.json is not an mdk Run file"):
+                    active_run(self.root)
+
+    def test_unreadable_records_are_a_run_error(self):
+        run = self.started()
+        write(self.root, f"docs/features/{SLUG}/breakdown.md", BREAKDOWN_OK)
+        (run.dir / "records.json").write_text("[]", encoding="utf-8")
+        with self.assertRaisesRegex(RunError, "records.json is not an mdk Run file"):
+            is_approved(run, "breakdown")
 
     def test_active_run_reports_unreadable_state(self):
         run = self.started()

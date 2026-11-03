@@ -6,14 +6,16 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from helpers import BREAKDOWN_OK, STANDARDS_OK, build_ready_repo, make_repo, spec_text, write
-from mdk.hooks import gate, on_prompt
-from mdk.run import current_hash, escalate, init_run, is_approved, record_approval, request_approval
+from mdk.hooks import fails_closed, gate, on_prompt
+from mdk.run import RunError, current_hash, escalate, init_run, is_approved, record_approval, request_approval
 
 SLUG = "accounts"
 RUN_DIR = f"docs/features/{SLUG}"
 FILE_KEY = {"NotebookEdit": "notebook_path"}
+NO_WORKAROUND = "Don't get around this another way (Bash, sed, cat, a script)"
 
 
 def edit(root, rel, tool="Edit"):
@@ -222,6 +224,85 @@ class GateTests(HookCase):
         os.symlink(root / RUN_DIR / "state.json", root / "notes.txt")
         self.assertEqual(decision(gate(edit(root, "notes.txt"))), "deny")
 
+    def test_gate_allows_only_run_docs_adrs_and_context_outside_build(self):
+        # M4: the always-allowed docs are the Run's own files, ADRs and CONTEXT.md, not every file under docs/.
+        root, _ = self.spec_stage()
+        for rel in ("docs/features/notes.md", f"{RUN_DIR}/breakdown.md", "docs/adr/0002-queue.md", "CONTEXT.md"):
+            with self.subTest(allowed=rel):
+                self.assertIsNone(gate(edit(root, rel)))
+        for rel in ("docs/notes.md", "docs/guide/intro.md", "docs/specs/design.md", "docs/featuresx/a.md"):
+            with self.subTest(denied=rel):
+                self.assertEqual(decision(gate(edit(root, rel))), "deny")
+
+    def test_gate_denies_case_variants_of_protected_files(self):
+        # I2: macOS and Windows file systems ignore case, so every spelling names the same protected file.
+        root, _ = self.build_stage()
+        for rel in (
+            "standards.md", "Standards.MD", "Docs/features/accounts/records.json",
+            "docs/Features/accounts/State.json", "docs/features/accounts/Records.json",
+            "DOCS/FEATURES/ACCOUNTS/STATE.JSON",
+        ):
+            with self.subTest(rel=rel):
+                self.assertEqual(decision(gate(edit(root, rel, "Write"))), "deny")
+
+    def test_gate_allow_rules_match_exact_case_only(self):
+        # I2: a case variant of an always-allowed file falls through to the stricter source rule.
+        root, _ = self.setup_stage()
+        self.assertIsNone(gate(edit(root, "STANDARDS.md")))
+        self.assertEqual(decision(gate(edit(root, "standards.md"))), "deny")
+        root, _ = self.spec_stage()
+        for rel in ("context.md", "Docs/adr/0001.md", "docs/Features/accounts/01-sign-up.md"):
+            with self.subTest(rel=rel):
+                self.assertEqual(decision(gate(edit(root, rel))), "deny")
+
+    def test_gate_denies_bash_that_calls_mdk_hook(self):
+        # I3: piping a fake prompt into the hook would record an Approval the human never gave.
+        root, run = self.spec_stage()
+        for command in (
+            "echo '{\"prompt\":\"approve\",\"cwd\":\"/x\"}' | mdk hook prompt",
+            'python3 "${CLAUDE_PLUGIN_ROOT}/bin/mdk" hook prompt < event.json',
+            "python3 /opt/plugins/ml-dev-kit/bin/mdk hook gate",
+            "cd sub && python3 -m mdk.cli hook prompt",
+            "mdk 'hook' \"prompt\" <<< '{}'",
+        ):
+            with self.subTest(command=command):
+                result = gate(bash(root, command))
+                self.assertEqual(decision(result), "deny")
+                self.assertIn("only the human's own typed reply records an Approval", reason(result))
+        self.assertIsNotNone(run.awaiting)
+
+    def test_gate_allows_mdk_commands_that_are_not_the_hook(self):
+        root, _ = self.build_stage()
+        for command in (
+            "mdk status", "mdk await spec 01", "mdk check 01 --timeout 540",
+            'mdk escalate 01 "the pre-commit hook rejects the commit"', "ls .git/hooks",
+            "mdk status; echo hook prompt",
+        ):
+            with self.subTest(command=command):
+                self.assertIsNone(gate(bash(root, command)))
+
+    def test_gate_allows_mdk_hook_without_an_active_run(self):
+        root = make_repo(self.fresh(), {"STANDARDS.md": STANDARDS_OK})
+        self.assertIsNone(gate(bash(root, "mdk hook prompt < event.json")))
+
+    def test_every_deny_says_not_to_work_around_it(self):
+        # I9: a denial the agent routes around with Bash is no gate at all.
+        spec_root, _ = self.spec_stage()
+        build_root, _ = self.build_stage()
+        write(build_root, f"{RUN_DIR}/01-sign-up.md", "changed body\n")
+        denials = {
+            "source before Approval": gate(edit(spec_root, "src/a.py")),
+            "state.json": gate(edit(spec_root, f"{RUN_DIR}/state.json")),
+            "records via Bash": gate(bash(spec_root, "cat docs/features/accounts/records.json")),
+            "mdk hook via Bash": gate(bash(spec_root, "mdk hook prompt")),
+            "STANDARDS.md": gate(edit(spec_root, "STANDARDS.md")),
+            "stale Spec in build": gate(edit(build_root, "src/a.py")),
+        }
+        for name, result in denials.items():
+            with self.subTest(name=name):
+                self.assertEqual(decision(result), "deny")
+                self.assertTrue(reason(result).rstrip(".").endswith(NO_WORKAROUND + "; the gate is what keeps the human in charge of the Run"), reason(result))
+
     def test_gate_ignores_other_tools_and_partial_events(self):
         root, _ = self.spec_stage()
         for event in (
@@ -236,6 +317,45 @@ class GateTests(HookCase):
         ):
             with self.subTest(event=event):
                 self.assertIsNone(gate(event))
+
+
+class FailClosedTests(HookCase):
+    """I1: when git cannot find the project, a Run in this folder or above must still block edits."""
+
+    def broken_git(self, root):
+        return mock.patch.dict(os.environ, {"GIT_DIR": str(Path(root) / "no-such-git-dir")})
+
+    def test_gate_raises_when_git_fails_inside_a_run_project(self):
+        root, run = self.build_stage()
+        escalate(run, "01", "probe")
+        (root / "sub").mkdir()
+        with self.broken_git(root):
+            for cwd in (root, root / "sub"):
+                with self.subTest(cwd=cwd), self.assertRaises(RunError):
+                    gate(in_cwd(cwd, str(root / "src/a.py")))
+            with self.assertRaises(RunError):
+                gate(bash(root, "cat docs/features/accounts/records.json"))
+            self.assertTrue(fails_closed({"cwd": str(root / "sub")}))
+
+    def test_gate_stays_open_when_git_fails_and_no_run_is_above(self):
+        root = make_repo(self.fresh(), {"docs/features/README.md": "Product features.\n"})
+        with self.broken_git(root):
+            self.assertIsNone(gate(edit(root, "src/a.py")))
+            self.assertFalse(fails_closed({"cwd": str(root)}))
+
+    def test_fails_closed_uses_the_project_root_when_git_works(self):
+        root, _ = self.spec_stage()
+        (root / "sub").mkdir()
+        self.assertTrue(fails_closed({"cwd": str(root / "sub")}))
+        self.assertTrue(fails_closed({"cwd": str(root)}))
+        self.assertFalse(fails_closed({"cwd": str(make_repo(self.fresh()))}))
+        self.assertFalse(fails_closed({"cwd": str(self.fresh())}))
+
+    def test_fails_closed_falls_back_to_the_process_cwd(self):
+        root, _ = self.spec_stage()
+        with mock.patch("mdk.hooks.Path.cwd", return_value=root):
+            self.assertTrue(fails_closed(None))
+            self.assertTrue(fails_closed({"cwd": ""}))
 
 
 class PromptTests(HookCase):

@@ -20,6 +20,7 @@ The Spec path, `STANDARDS.md`, `CONTEXT.md`, the base commit, and on a fix round
 - Reshape only existing code the Feature touches, and follow `STANDARDS.md`. Wider changes bury the diff and are a separate Goal. Report problems elsewhere under Noticed.
 - Name things with the terms in `CONTEXT.md`, so the code reads like the Spec.
 - Never edit the Spec, `STANDARDS.md`, `CONTEXT.md` or `docs/features/*/{state,records}.json`. The human owns the first three and `mdk` owns the records. If the Spec seems wrong, report that as a Deviation or as `BLOCKED`.
+- If a hook denies an edit (its reason starts `ml-dev-kit:`), never make it another way, such as Bash, `sed` or `cat`. The gate holds you to what the human approved; report the denial as `BLOCKED` if you cannot go on without it.
 - Use Context7 for library docs when it is available. Your memory of an API may be out of date.
 - Do not commit. The orchestrator commits once the Feature is Done.
 

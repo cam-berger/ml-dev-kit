@@ -67,6 +67,12 @@ class AgentFileTests(unittest.TestCase):
         reviewer = (PLUGIN / "agents/reviewer.md").read_text(encoding="utf-8")
         self.assertIn("latest, cumulative report", reviewer)
 
+    def test_prompts_forbid_working_around_a_denial(self):
+        # I9: a denied edit made through Bash defeats the gate; both the orchestrator and the builder are told.
+        for path in (SKILL / "SKILL.md", PLUGIN / "agents/implementer.md"):
+            with self.subTest(path=path.name):
+                self.assertRegex(path.read_text(encoding="utf-8"), r"[Nn]ever make (it|the change) another way, such as Bash")
+
     def test_spec_checker_reply_format(self):
         body = (PLUGIN / "agents/spec-checker.md").read_text(encoding="utf-8")
         self.assertIn("nothing important left", body)

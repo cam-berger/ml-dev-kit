@@ -22,9 +22,9 @@ PASSING_TESTS = (
 )
 
 
-def mdk(cwd, *args, stdin=""):
+def mdk(cwd, *args, stdin="", env=None):
     return subprocess.run(
-        [sys.executable, str(BIN), *args], cwd=cwd, input=stdin, capture_output=True, text=True
+        [sys.executable, str(BIN), *args], cwd=cwd, input=stdin, capture_output=True, text=True, env=env
     )
 
 
@@ -160,7 +160,26 @@ class HookTests(CliCase):
 
     def test_hook_gate_prints_nothing_when_it_allows(self):
         root = self.started()
-        done = self.ok(root, "hook", "gate", stdin=edit_event(root, "docs/notes.md"))
+        done = self.ok(root, "hook", "gate", stdin=edit_event(root, "docs/adr/0001-queue.md"))
+        self.assertEqual(done.stdout, "")
+
+    def test_hook_gate_fails_closed_when_git_is_unusable_inside_a_run_project(self):
+        # I1: without git the gate cannot see the Run, so it must block rather than wave the edit through.
+        root = self.started()
+        no_git = self.bare_dir()  # an empty PATH: the interpreter is called by absolute path
+        for label, env in (
+            ("git missing from PATH", dict(os.environ, PATH=str(no_git))),
+            ("bad GIT_DIR", dict(os.environ, GIT_DIR=str(root / "nope"))),
+        ):
+            with self.subTest(label):
+                done = mdk(root, "hook", "gate", stdin=edit_event(root), env=env)
+                self.assertEqual(done.returncode, 2, done.stdout + done.stderr)
+                self.assertTrue(done.stderr.startswith("ml-dev-kit: hook error:"), done.stderr)
+
+    def test_hook_gate_ignores_a_state_json_that_is_not_mdks(self):
+        # M1: another tool's docs/features/<x>/state.json is not a Run.
+        root = make_repo(self.tmp, {"docs/features/widgets/state.json": json.dumps({"enabled": True})})
+        done = self.ok(root, "hook", "gate", stdin=edit_event(root))
         self.assertEqual(done.stdout, "")
 
     def test_hook_gate_fails_closed_on_bad_state(self):

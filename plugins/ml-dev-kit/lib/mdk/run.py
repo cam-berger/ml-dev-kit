@@ -16,6 +16,8 @@ from pathlib import Path
 from . import docs
 
 _SLUG = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
+_STATE_KEYS = ("goal", "slug", "branch", "stage", "awaiting", "current", "features", "escalation")
+_RECORDS_KEYS = ("approvals", "done")
 
 
 class RunError(RuntimeError):
@@ -62,10 +64,18 @@ def project_root(start: Path) -> Path:
     return Path(_git(start, "rev-parse", "--show-toplevel"))
 
 
+def has_runs(root: Path) -> bool:
+    """Whether root holds a Run directory, readable or not: the sign that a broken hook must fail closed."""
+    try:
+        return bool(_state_files(root))
+    except OSError:
+        return False
+
+
 def active_run(root: Path) -> Run | None:
     runs = []
-    for path in sorted((root / "docs" / "features").glob("*/state.json")):
-        state = _load(path)
+    for path in _state_files(root):
+        state = _load(path, _STATE_KEYS)
         if state["stage"] != "done":
             runs.append(Run(root, path.parent.name, state))
     if len(runs) > 1:
@@ -304,15 +314,24 @@ def _read(path: Path) -> str:
         raise RunError(f"cannot read {path}: {err.strerror}") from err
 
 
-def _load(path: Path) -> dict:
+def _state_files(root: Path) -> list[Path]:
+    # init writes both files, so a state.json without records.json belongs to some other tool.
+    found = sorted((root / "docs" / "features").glob("*/state.json"))
+    return [path for path in found if (path.parent / "records.json").is_file()]
+
+
+def _load(path: Path, keys: tuple[str, ...]) -> dict:
     try:
-        return json.loads(_read(path))
+        data = json.loads(_read(path))
     except ValueError as err:
         raise RunError(f"{path} is not valid JSON: {err}") from err
+    if not isinstance(data, dict) or any(key not in data for key in keys):
+        raise RunError(f"{path} is not an mdk Run file: it needs the keys {', '.join(keys)}")
+    return data
 
 
 def _records(run: Run) -> dict:
-    return _load(run.dir / "records.json")
+    return _load(run.dir / "records.json", _RECORDS_KEYS)
 
 
 def _save_records(run: Run, records: dict) -> None:
