@@ -144,6 +144,18 @@ class BreakdownTests(unittest.TestCase):
         with self.assertRaisesRegex(DocError, "duplicate"):
             parse_breakdown("01. a — x\n02. a — y\n")
 
+    def test_parse_breakdown_names_near_miss_feature_lines(self):
+        # I6: a numbered line that does not parse was a Feature silently dropped from the Run.
+        for line in (
+            "03. reset – Users reset passwords.", "3. reset — Users reset passwords.",
+            "03. Reset — Users reset passwords.", "03. reset: Users reset passwords.",
+            "  03. reset — Users reset passwords.", "- 03. reset — Users reset passwords.",
+        ):
+            with self.subTest(line=line), self.assertRaises(DocError) as caught:
+                parse_breakdown(BREAKDOWN_OK + line + "\n")
+            self.assertIn(line.strip(), str(caught.exception))
+            self.assertIn("01. sign-up — ", str(caught.exception))
+
     def test_parse_breakdown_rejects_empty(self):
         with self.assertRaises(DocError):
             parse_breakdown("# Breakdown\n")

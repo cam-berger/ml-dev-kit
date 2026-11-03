@@ -7,14 +7,15 @@ import sys
 from pathlib import Path
 
 from . import hooks
-from .check import CheckResult, check_feature
+from .check import CheckResult, check_feature, standards_test_files
 from .docs import DocError
 from .run import (
-    Run, RunError, active_run, begin_build, escalate, init_run, mark_done, next_action, project_root,
-    request_approval,
+    Run, RunError, active_run, begin_build, escalate, init_run, mark_done, next_action, planned_features,
+    project_root, request_approval,
 )
 
 _STATUS_KEYS = ("goal", "branch", "stage", "awaiting", "current", "features", "escalation")
+_SHOWN_FILES = 10
 
 
 def main(argv: list[str]) -> int:
@@ -78,7 +79,26 @@ def _status(args: argparse.Namespace) -> int:
 def _await(args: argparse.Namespace) -> int:
     run = _run()
     request_approval(run, args.kind, args.fid or (run.current if args.kind == "spec" else None))
+    if args.kind == "breakdown":
+        print("Features in build order:")
+        for feature in planned_features(run):
+            status = "" if feature["status"] == "pending" else f" ({feature['status']})"
+            print(f"- {feature['id']}. {feature['slug']}{status}")
+    elif args.kind == "standards":
+        print("Files the Done check searches for test names:")
+        for glob, files in standards_test_files(run).items():
+            print(f"- `{glob}`: {_file_list(files)}")
     return _next(run)
+
+
+def _file_list(files: list[str]) -> str:
+    if not files:
+        return (
+            "no files. Fine while the project has no tests; otherwise fix it. "
+            "A glob needs a wildcard to match files: `tests/**/*.py`, not `tests`."
+        )
+    more = len(files) - _SHOWN_FILES
+    return ", ".join(files[:_SHOWN_FILES]) + (f" and {more} more" if more > 0 else "")
 
 
 def _begin(args: argparse.Namespace) -> int:

@@ -15,7 +15,9 @@ The human is in the loop for all of this. A Spec's Approval is the last human ga
 1. Grill on the Goal's objective first: who it is for, what changes for them, and what is out. Details come later, per Feature.
 2. Propose how the Goal splits into Features, in build order. Each Feature must be specifiable, buildable and testable on its own. A small Goal is one Feature, and its Breakdown is one line.
 3. Write `docs/features/<run-slug>/breakdown.md` from [../templates/breakdown.md](../templates/breakdown.md).
-4. Run `mdk await breakdown`, ask for `approve`, then commit.
+4. Run `mdk await breakdown`, which prints the Features it read. The Run builds exactly that list, so check it against what you agreed, then ask for `approve` and commit.
+
+Between Features (stage `spec`) the Breakdown may change again with the human: rewrite it, keeping each started or Done Feature's line as it is, and repeat step 4.
 
 ## Each Feature
 

@@ -126,8 +126,28 @@ class SkillFileTests(unittest.TestCase):
         # After setup STANDARDS.md is the human's, so a broken line would only show in Build, unfixable.
         setup = (SKILL / "references/setup.md").read_text(encoding="utf-8")
         locked = setup.index("`mdk await standards`")
-        for phrase in ("Run the drafted test command and time it", "8 minutes", "git ls-files"):
+        for phrase in ("Run the drafted test command and time it", "8 minutes"):
             self.assertLess(setup.index(phrase), locked, phrase)
+
+    def test_setup_checks_globs_with_mdks_own_matcher(self):
+        # I7/R19: git's glob dialect differs from the Done check's, so Setup reads what `mdk await standards` prints.
+        setup = (SKILL / "references/setup.md").read_text(encoding="utf-8")
+        self.assertNotIn("git ls-files", setup)
+        step = setup[setup.index("`mdk await standards`"):]
+        self.assertLess(step.index("prints the files each glob matches"), step.index("ask for `approve`"))
+        self.assertIn("needs a wildcard", step)
+        template = (SKILL / "templates/standards.md").read_text(encoding="utf-8")
+        self.assertIn("a bare folder matches nothing", template)
+
+    def test_setup_repairs_a_standards_file_mdk_cannot_read(self):
+        # M3: init starts in setup when STANDARDS.md lacks the machine lines.
+        self.assertIn("lacks the two lines `mdk` reads", (SKILL / "references/setup.md").read_text(encoding="utf-8"))
+
+    def test_skill_says_when_the_breakdown_can_change(self):
+        # I6/R18: the Breakdown may change between Features, keeping every started or Done Feature's line.
+        skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("The Breakdown can change only between Features", skill)
+        self.assertIn("`mdk await breakdown`, which prints the Features it read", (SKILL / "references/spec.md").read_text(encoding="utf-8"))
 
     def test_build_reference_caps_fix_loop_at_3(self):
         build = (SKILL / "references/build.md").read_text(encoding="utf-8")

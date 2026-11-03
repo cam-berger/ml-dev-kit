@@ -15,6 +15,7 @@ _AFTER = r"(?![0-9])"
 _BEHAVIOUR_ID = re.compile(_BEFORE + r"(\d{2})-B(\d+)" + _AFTER)
 _LIST_ITEM = re.compile(r"^(?:[-*+]|\d+[.)])\s")
 _BREAKDOWN_LINE = re.compile(r"^(\d{2})\. ([a-z0-9]+(?:-[a-z0-9]+)*) [—-] (.+)$")
+_NUMBERED = re.compile(r"^\s*(?:[-*+]\s+)?\d+\s*\.")
 _TEST_COMMAND = re.compile(r"^Test command:\s*`([^`]+)`\s*$")
 _TEST_FILES = re.compile(r"^Test files:\s*(.+)$")
 _GLOB_TOKENS = {"**/": "(?:.*/)?", "**": ".*", "*": "[^/]*", "?": "[^/]"}
@@ -116,8 +117,15 @@ def text_hash(text: str) -> str:
 
 
 def parse_breakdown(text: str) -> list[PlannedFeature]:
-    matches = (_BREAKDOWN_LINE.match(line) for line in _lines(text))
-    features = [PlannedFeature(*m.groups()) for m in matches if m]
+    lines = _lines(text)
+    # A numbered line that does not parse is a Feature that would silently drop out of the Run.
+    near_misses = [line.strip() for line in lines if _NUMBERED.match(line) and not _BREAKDOWN_LINE.match(line)]
+    if near_misses:
+        raise DocError(
+            "these breakdown lines do not parse: " + "; ".join(repr(line) for line in near_misses)
+            + ". Write each as '01. sign-up — <summary>': a two-digit ID, a lowercase slug, then a dash"
+        )
+    features = [PlannedFeature(*m.groups()) for m in map(_BREAKDOWN_LINE.match, lines) if m]
     if not features:
         raise DocError("breakdown lists no features; expected lines like '01. slug — summary'")
     expected = [f"{n:02d}" for n in range(1, len(features) + 1)]

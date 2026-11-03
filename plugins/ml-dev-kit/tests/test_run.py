@@ -99,6 +99,15 @@ class InitTests(RunCase):
     def test_init_stage_breakdown_when_standards_exist(self):
         self.assertEqual(self.started().stage, "breakdown")
 
+    def test_init_stage_setup_when_standards_do_not_parse(self):
+        # M3: a STANDARDS.md without the lines mdk reads would fail every Done check; Setup repairs it with the human.
+        root = self.repo({"STANDARDS.md": "# Our coding standards\nUse tabs.\n"})
+        run = init_run(root, SLUG, GOAL)
+        self.assertEqual(run.stage, "setup")
+        write(root, "STANDARDS.md", STANDARDS_OK)
+        request_approval(run, "standards")
+        self.assertEqual(run.awaiting["kind"], "standards")
+
     def test_state_files_are_indented_json_with_trailing_newline_and_no_temp_residue(self):
         run = self.started()
         for name in ("state.json", "records.json"):
@@ -213,6 +222,8 @@ class ApprovalTests(RunCase):
         request_approval(run, "breakdown")
         self.assertEqual(run.stage, "breakdown")
         self.assertEqual(run.awaiting, {"kind": "breakdown", "feature": None, "sha256": current_hash(run, "breakdown")})
+        self.assertEqual(run.features, [])  # the features come with the Approval, not with the request
+        record_approval(run)
         self.assertEqual(
             run.features,
             [
@@ -229,11 +240,94 @@ class ApprovalTests(RunCase):
             request_approval(run, "breakdown")
         self.assertEqual(run.features, [])
 
-    def test_await_breakdown_refuses_once_a_feature_has_started(self):
-        run = self.with_breakdown_approved()
-        run.feature("01")["status"] = "done"
-        with self.assertRaises(RunError):
+    def test_await_breakdown_refuses_while_a_feature_builds_or_is_escalated(self):
+        run = self.building()
+        with self.assertRaisesRegex(RunError, "feature 01 is being built.*between Features"):
             request_approval(run, "breakdown")
+        escalate(run, "01", "scope change")
+        with self.assertRaisesRegex(RunError, "feature 01 is escalated.*mdk await spec 01"):
+            request_approval(run, "breakdown")
+
+    def test_await_breakdown_names_the_missing_standards_approval(self):
+        root = self.repo()
+        run = init_run(root, SLUG, GOAL)
+        write(root, f"docs/features/{SLUG}/breakdown.md", BREAKDOWN_OK)
+        with self.assertRaisesRegex(RunError, "STANDARDS.md is not approved yet: run mdk await standards"):
+            request_approval(run, "breakdown")
+
+    def between_features(self):
+        """Feature 01 Done, so the Run is in stage spec for feature 02."""
+        run = self.building()
+        mark_done(run, "01")
+        return run
+
+    def test_breakdown_can_change_between_features(self):
+        # I6/R18: started and Done features keep their lines; pending ones may change, and new ones may follow.
+        run = self.between_features()
+        base = run.feature("01")["base"]
+        write(self.root, f"docs/features/{SLUG}/breakdown.md",
+              "01. sign-up — New users create an account.\n02. sign-in — Users sign in.\n03. reset — Users reset passwords.\n")
+        request_approval(run, "breakdown")
+        self.assertEqual([f["slug"] for f in run.features], ["sign-up", "login"])  # unchanged until approved
+        record_approval(run)
+        self.assertEqual(run.features, [
+            {"id": "01", "slug": "sign-up", "status": "done", "base": base},
+            {"id": "02", "slug": "sign-in", "status": "pending", "base": None},
+            {"id": "03", "slug": "reset", "status": "pending", "base": None},
+        ])
+        self.assertEqual((run.stage, run.current, run.awaiting), ("spec", "02", None))
+        self.assertEqual(self.saved(run), run.state)
+        self.approve_spec(run, "02")
+        self.assertTrue(run.spec_path("02").name.endswith("02-sign-in.md"))
+
+    def test_breakdown_must_keep_started_and_done_features(self):
+        run = self.between_features()
+        for text in ("01. signup — New users.\n02. login — Users sign in.\n", "01. login — Users sign in.\n"):
+            with self.subTest(text=text):
+                write(self.root, f"docs/features/{SLUG}/breakdown.md", text)
+                with self.assertRaisesRegex(RunError, "feature 01 is done, so the breakdown must keep it as 01. sign-up"):
+                    request_approval(run, "breakdown")
+        self.assertIsNone(run.awaiting)
+
+    def test_breakdown_must_leave_a_feature_to_build(self):
+        run = self.between_features()
+        write(self.root, f"docs/features/{SLUG}/breakdown.md", "01. sign-up — New users create an account.\n")
+        with self.assertRaisesRegex(RunError, "not done"):
+            request_approval(run, "breakdown")
+
+    def test_breakdown_change_before_build_keeps_the_spec_approval(self):
+        run = self.with_breakdown_approved()
+        self.approve_spec(run)
+        write(self.root, f"docs/features/{SLUG}/breakdown.md", BREAKDOWN_OK + "03. reset — Users reset passwords.\n")
+        request_approval(run, "breakdown")
+        record_approval(run)
+        self.assertEqual((run.stage, run.current), ("spec", "01"))
+        commit(self.root, "spec and breakdown")
+        begin_build(run, "01")
+        self.assertEqual(run.stage, "build")
+
+    def test_breakdown_change_keeps_an_escalated_feature(self):
+        run = self.building()
+        escalate(run, "01", "scope change")
+        request_approval(run, "spec", "01")
+        write(self.root, f"docs/features/{SLUG}/breakdown.md", "01. signup — New users.\n02. login — Users sign in.\n")
+        with self.assertRaisesRegex(RunError, "feature 01 is escalated, so the breakdown must keep it"):
+            request_approval(run, "breakdown")
+        write(self.root, f"docs/features/{SLUG}/breakdown.md", BREAKDOWN_OK + "03. reset — Users reset passwords.\n")
+        request_approval(run, "breakdown")
+        record_approval(run)
+        self.assertEqual(run.feature("01")["status"], "escalated")
+        self.assertEqual([f["id"] for f in run.features], ["01", "02", "03"])
+
+    def test_a_declined_breakdown_change_leaves_the_approved_features(self):
+        # The features always match the breakdown the human approved, even after an unapproved request.
+        run = self.with_breakdown_approved()
+        breakdown = run.dir / "breakdown.md"
+        breakdown.write_text("01. sign-up — New users create an account.\n", encoding="utf-8")
+        request_approval(run, "breakdown")
+        breakdown.write_text(BREAKDOWN_OK, encoding="utf-8")
+        self.assertTrue(is_approved(run, "breakdown"))
+        self.assertEqual([f["id"] for f in run.features], ["01", "02"])
 
     def test_standards_approval_tracks_file_hash(self):
         root = self.repo()
@@ -326,9 +420,17 @@ class ApprovalTests(RunCase):
     def test_await_spec_requires_approved_breakdown(self):
         run = self.started()
         write(self.root, f"docs/features/{SLUG}/breakdown.md", BREAKDOWN_OK)
-        request_approval(run, "breakdown")
-        run.spec_path("01").write_text(spec_text("01"), encoding="utf-8")
+        request_approval(run, "breakdown")  # asked, not yet approved: the Run has no features yet
+        write(self.root, f"docs/features/{SLUG}/01-sign-up.md", spec_text("01"))
         with self.assertRaisesRegex(RunError, "breakdown"):
+            request_approval(run, "spec", "01")
+
+    def test_await_spec_after_a_breakdown_edit_says_to_await_the_breakdown(self):
+        # I6: this message used to send the agent round in circles; it now names the way out.
+        run = self.with_breakdown_approved()
+        write(self.root, f"docs/features/{SLUG}/breakdown.md", BREAKDOWN_OK + "03. reset — Users reset passwords.\n")
+        run.spec_path("01").write_text(spec_text("01"), encoding="utf-8")
+        with self.assertRaisesRegex(RunError, "breakdown.md is not approved as it stands: run mdk await breakdown"):
             request_approval(run, "spec", "01")
 
     def test_await_spec_lists_spec_problems(self):

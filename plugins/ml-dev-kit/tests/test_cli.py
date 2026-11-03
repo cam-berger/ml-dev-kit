@@ -132,6 +132,43 @@ class FlowTests(CliCase):
         self.assertIn("- test output never names 01-B1 (did it run?)", failed.stdout)
         self.assertEqual(self.status(root)["stage"], "build")
 
+    def test_await_breakdown_prints_the_features_it_read(self):
+        # I6: the human approves the list mdk parsed, so they can see a Feature that did not make it.
+        root = self.started()
+        write(root, "STANDARDS.md", STANDARDS_OK)
+        commit(root, "standards")
+        self.ok(root, "await", "standards")
+        self.approve(root)
+        write(root, f"{RUN_DIR}/breakdown.md", "01. sign-up — New users.\n02. login — Users sign in.\n")
+        done = self.ok(root, "await", "breakdown")
+        self.assertEqual(done.stdout.splitlines()[:3], ["Features in build order:", "- 01. sign-up", "- 02. login"])
+
+    def test_await_standards_lists_the_files_each_glob_matches(self):
+        # I7/R19: Setup checks the globs with the matcher the Done check uses, from any folder.
+        root = self.started()
+        write(root, "tests/test_a.py", "x")
+        write(root, "tests/unit/test_b.py", "x")
+        write(root, "STANDARDS.md", "Test command: `python3 -m unittest -v`\nTest files: `tests/**/*.py`, `tests`, `tests/test_[ab].py`\n")
+        (root / "sub").mkdir()
+        for cwd in (root, root / "sub"):
+            with self.subTest(cwd=cwd):
+                lines = self.ok(cwd, "await", "standards").stdout.splitlines()
+                self.assertEqual(lines[0], "Files the Done check searches for test names:")
+                self.assertEqual(lines[1], "- `tests/**/*.py`: tests/test_a.py, tests/unit/test_b.py")
+                for glob, line in zip(("tests", "tests/test_[ab].py"), lines[2:4]):
+                    self.assertTrue(line.startswith(f"- `{glob}`: no files."), line)
+                    self.assertIn("needs a wildcard", line)
+                self.assertIn("approve", lines[-1])
+
+    def test_await_standards_shortens_a_long_file_list(self):
+        root = self.started()
+        for n in range(13):
+            write(root, f"tests/test_{n:02d}.py", "x")
+        write(root, "STANDARDS.md", "Test command: `python3 -m unittest -v`\nTest files: `tests/*.py`\n")
+        line = self.ok(root, "await", "standards").stdout.splitlines()[1]
+        self.assertTrue(line.startswith("- `tests/*.py`: tests/test_00.py, "), line)
+        self.assertTrue(line.endswith("tests/test_09.py and 3 more"), line)
+
     def test_escalate_joins_the_reason(self):
         root = self.building()
         self.ok(root, "escalate", "01", "cannot", "meet", "01-B2")

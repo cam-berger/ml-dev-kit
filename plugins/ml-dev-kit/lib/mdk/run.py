@@ -89,7 +89,7 @@ def init_run(root: Path, slug: str, goal: str) -> Run:
     existing = active_run(root)
     if existing:
         raise RunError(f"Run {existing.slug!r} is still active; finish it first")
-    stage = "breakdown" if (root / "STANDARDS.md").exists() else "setup"
+    stage = "breakdown" if _standards_readable(root) else "setup"
     run = Run(root, slug, {
         "goal": goal, "slug": slug, "branch": f"mdk/{slug}", "stage": stage, "awaiting": None,
         "current": None, "features": [], "escalation": None,
@@ -140,11 +140,18 @@ def record_approval(run: Run) -> dict | None:
     waiting = run.awaiting
     if waiting is None:
         return None
-    sha = current_hash(run, waiting["kind"], waiting["feature"])
-    if sha is None:
+    path = document(run, waiting["kind"], waiting["feature"])
+    if not path.is_file():
         raise RunError(f"cannot record the Approval: the {waiting['kind']} document is missing")
+    text = _read(path)
+    sha = _hash(waiting["kind"], text)
     if sha != waiting.get("sha256"):
         return None
+    if waiting["kind"] == "breakdown":
+        # The features change with the Approval, so they always match the breakdown the human approved.
+        run.state["features"] = _plan(run, text)
+        if run.stage == "spec":
+            run.state["current"] = _first_unfinished(run)
     record = {"kind": waiting["kind"], "feature": waiting["feature"], "sha256": sha, "at": _now()}
     records = _records(run)
     records["approvals"].append(record)
@@ -248,25 +255,57 @@ def _prepare_standards(run: Run) -> str:
     return text
 
 
+def planned_features(run: Run) -> list[dict]:
+    """The features breakdown.md would give the Run once approved: what the human is asked to approve."""
+    return _plan(run, _read(run.dir / "breakdown.md"))
+
+
 def _prepare_breakdown(run: Run) -> str:
-    if not (run.stage == "breakdown" or (run.stage == "setup" and is_approved(run, "standards"))):
-        raise RunError("the breakdown comes after an approved STANDARDS.md")
+    if run.stage == "setup" and not is_approved(run, "standards"):
+        raise RunError("STANDARDS.md is not approved yet: run mdk await standards and ask the human to approve it")
+    if run.stage == "build":
+        raise RunError(
+            f"feature {run.current} is being built, and the breakdown can change only between Features: "
+            f"finish it with mdk done {run.current}, or escalate it"
+        )
+    if run.stage == "escalated":
+        raise RunError(
+            f"feature {run.current} is escalated: resolve it and run mdk await spec {run.current} "
+            "before changing the breakdown"
+        )
     text = _read(run.dir / "breakdown.md")
-    planned = docs.parse_breakdown(text)
-    if any(f["status"] != "pending" for f in run.features):
-        raise RunError("the breakdown can no longer change: a feature has already started")
-    run.state["features"] = [
-        {"id": p.id, "slug": p.slug, "status": "pending", "base": None} for p in planned
-    ]
-    run.state["stage"] = "breakdown"
+    _plan(run, text)  # refuse now a breakdown that could not apply at its Approval
+    if run.stage == "setup":
+        run.state["stage"] = "breakdown"
     return text
+
+
+def _plan(run: Run, text: str) -> list[dict]:
+    """The features list for a breakdown: started and Done features keep their line, status and base."""
+    planned = docs.parse_breakdown(text)
+    known = {f["id"]: f for f in run.features}
+    slugs = {p.id: p.slug for p in planned}
+    for feature in run.features:
+        if feature["status"] != "pending" and slugs.get(feature["id"]) != feature["slug"]:
+            raise RunError(
+                f"feature {feature['id']} is {feature['status']}, so the breakdown must keep it as "
+                f"{feature['id']}. {feature['slug']}; only features not yet started may change"
+            )
+    features = [
+        known[p.id] if p.id in known and known[p.id]["slug"] == p.slug
+        else {"id": p.id, "slug": p.slug, "status": "pending", "base": None}
+        for p in planned
+    ]
+    if all(f["status"] == "done" for f in features):
+        raise RunError("every feature in this breakdown is done; it must list the work not done yet")
+    return features
 
 
 def _prepare_spec(run: Run, fid: str | None) -> str:
     if fid is None:
         raise RunError("a Spec Approval needs a feature ID")
     if not is_approved(run, "breakdown"):
-        raise RunError("the breakdown is not approved yet")
+        raise RunError("breakdown.md is not approved as it stands: run mdk await breakdown and ask the human to approve it")
     status = run.feature(fid)["status"]
     if status not in ("pending", "escalated"):
         raise RunError(f"feature {fid} is {status}; only a pending or escalated feature can be approved")
@@ -280,6 +319,14 @@ def _prepare_spec(run: Run, fid: str | None) -> str:
         raise RunError(f"the Spec for feature {fid} is not ready:\n- " + "\n- ".join(problems))
     run.state.update(stage="spec", current=fid)
     return text
+
+
+def _standards_readable(root: Path) -> bool:
+    try:
+        docs.parse_standards((root / "STANDARDS.md").read_text(encoding="utf-8"))
+    except (OSError, ValueError):  # missing, not UTF-8, or without the lines mdk reads: Setup fixes it
+        return False
+    return True
 
 
 def _first_unfinished(run: Run) -> str | None:

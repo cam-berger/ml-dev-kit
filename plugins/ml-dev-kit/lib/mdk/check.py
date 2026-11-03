@@ -66,19 +66,29 @@ def _behaviour_ids(run: Run, fid: str) -> list[str] | None:
     return docs.behaviour_ids(spec)
 
 
-def _test_texts(root: Path, globs: tuple[str, ...]) -> list[str]:
+def standards_test_files(run: Run) -> dict[str, list[str]]:
+    """Each Test files glob in STANDARDS.md with the files it matches, as the Done check will see them."""
+    standards = docs.parse_standards((run.root / "STANDARDS.md").read_text(encoding="utf-8"))
+    return glob_matches(run.root, standards.test_globs)
+
+
+def glob_matches(root: Path, globs: tuple[str, ...]) -> dict[str, list[str]]:
+    """The one glob matcher: Setup shows its result, and Done reads the files it finds."""
     listed = subprocess.run(
         ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
         cwd=root, capture_output=True, text=True,
     ).stdout.split("\0")
-    patterns = [docs.glob_to_regex(g) for g in globs]
+    paths = [path for path in dict.fromkeys(listed) if path]
+    return {glob: [path for path in paths if docs.glob_to_regex(glob).fullmatch(path)] for glob in globs}
+
+
+def _test_texts(root: Path, globs: tuple[str, ...]) -> list[str]:
     texts = []
-    for path in dict.fromkeys(listed):
-        if path and any(p.fullmatch(path) for p in patterns):
-            try:
-                texts.append((root / path).read_text(encoding="utf-8", errors="replace"))
-            except OSError:
-                continue  # listed by git but gone or unreadable: it names no tests
+    for path in dict.fromkeys(p for matched in glob_matches(root, globs).values() for p in matched):
+        try:
+            texts.append((root / path).read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            continue  # listed by git but gone or unreadable: it names no tests
     return texts
 
 
