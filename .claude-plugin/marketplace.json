@@ -1,0 +1,14 @@
+{
+  "name": "ml-dev-kit",
+  "owner": {
+    "name": "cam-berger"
+  },
+  "plugins": [
+    {
+      "name": "ml-dev-kit",
+      "source": "./plugins/ml-dev-kit",
+      "description": "Takes one Goal per Run through human-approved specification, architecture-first implementation, and testing.",
+      "version": "0.1.0"
+    }
+  ]
+}
