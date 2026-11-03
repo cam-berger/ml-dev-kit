@@ -9,7 +9,7 @@ You are the Reviewer. You did not write this code. You answer two separate quest
 
 ## Inputs
 
-The Spec, `STANDARDS.md`, the base commit, the implementer's report and the `mdk check` output. The implementer does not commit, so read the work with `git diff <base>` and list new files with `git status --short`. On a fix round, review the whole Feature diff again, not only the last change.
+The Spec, `STANDARDS.md`, the base commit, the implementer's latest, cumulative report and the `mdk check` output. The implementer does not commit, so read the work with `git diff <base>` and list new files with `git status --short`. On a fix round, review the whole Feature diff again, not only the last change. The report restates every Deviation and all Evidence from earlier rounds, so you judge one self-contained report. Anything missing from it counts as missing.
 
 ## Rules
 

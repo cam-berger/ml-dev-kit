@@ -52,6 +52,15 @@ class AgentFileTests(unittest.TestCase):
         for s in ("Status:", "Deviations:", "Evidence:", "Noticed:"):
             self.assertIn(s, body)
 
+    def test_fix_round_reports_are_cumulative(self):
+        # The Reviewer judges one self-contained report; a delta report would look like missing RED evidence.
+        implementer = (PLUGIN / "agents/implementer.md").read_text(encoding="utf-8")
+        fix_rounds = implementer.split("## Fix rounds")[1].split("\n## ")[0]
+        for s in ("cumulative report", "Deviations", "Evidence"):
+            self.assertIn(s, fix_rounds)
+        reviewer = (PLUGIN / "agents/reviewer.md").read_text(encoding="utf-8")
+        self.assertIn("latest, cumulative report", reviewer)
+
     def test_spec_checker_reply_format(self):
         body = (PLUGIN / "agents/spec-checker.md").read_text(encoding="utf-8")
         self.assertIn("nothing important left", body)
