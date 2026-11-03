@@ -4,6 +4,10 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from mdk.run import Run
 
 PLUGIN = Path(__file__).resolve().parent.parent
 REPO = PLUGIN.parent.parent
@@ -70,3 +74,21 @@ def make_repo(tmp: Path, files: dict[str, str] | None = None) -> Path:
         write(root, rel, text)
     commit(root, "init")
     return root
+
+
+def build_ready_repo(tmp: Path, test_command: str) -> tuple[Path, Run]:
+    """A one-feature Run driven, via the real transitions, to `begin_build("01")`."""
+    from mdk.run import begin_build, init_run, record_approval, request_approval
+
+    standards = f"# Standards\n\nTest command: `{test_command}`\nTest files: `tests/**/*.py`\n"
+    root = make_repo(tmp, {"STANDARDS.md": standards})
+    run = init_run(root, "accounts", "Let people sign up")
+    write(root, "docs/features/accounts/breakdown.md", "01. sign-up — New users create an account.\n")
+    request_approval(run, "breakdown")
+    record_approval(run)
+    run.spec_path("01").write_text(spec_text("01"), encoding="utf-8")
+    request_approval(run, "spec", "01")
+    record_approval(run)
+    commit(root, "spec 01")
+    begin_build(run, "01")
+    return root, run
