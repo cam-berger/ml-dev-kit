@@ -287,7 +287,7 @@ class WiringTests(unittest.TestCase):
             for entry in entries:
                 for hook in entry["hooks"]:
                     self.assertIn("bin/mdk", hook["command"])
-        self.assertEqual(hooks["PreToolUse"][0]["matcher"], "Edit|Write|MultiEdit|NotebookEdit|Bash")
+        self.assertEqual(hooks["PreToolUse"][0]["matcher"], "Edit|Write|MultiEdit|NotebookEdit|Bash|apply_patch")
 
 
 if __name__ == "__main__":

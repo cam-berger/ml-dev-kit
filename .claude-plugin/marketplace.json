@@ -1,6 +1,6 @@
 {
   "name": "ml-dev-kit",
-  "description": "Claude Code plugins for codebases that stay explainable and easy to build on.",
+  "description": "Coding workflows for codebases that stay explainable and easy to build on.",
   "owner": {
     "name": "cam-berger"
   },
@@ -9,7 +9,7 @@
       "name": "ml-dev-kit",
       "source": "./plugins/ml-dev-kit",
       "description": "Takes one Goal per Run through human-approved specification, architecture-first implementation, and testing.",
-      "version": "0.1.0"
+      "version": "0.2.0"
     }
   ]
 }

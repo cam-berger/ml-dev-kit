@@ -1,0 +1,23 @@
+{
+  "name": "ml-dev-kit",
+  "version": "0.2.0",
+  "description": "Takes one Goal per Run through human-approved specification, architecture-first implementation, and testing.",
+  "author": {
+    "name": "cam-berger"
+  },
+  "skills": "./skills/",
+  "hooks": "./hooks/hooks.json",
+  "interface": {
+    "displayName": "ML Dev Kit",
+    "shortDescription": "Build Features from approved Specs and Standards",
+    "developerName": "cam-berger",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Use $ml-dev-kit:feature to add a feature to this project."
+    ]
+  }
+}

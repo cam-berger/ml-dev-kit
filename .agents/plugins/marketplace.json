@@ -1,0 +1,20 @@
+{
+  "name": "ml-dev-kit",
+  "interface": {
+    "displayName": "ML Dev Kit"
+  },
+  "plugins": [
+    {
+      "name": "ml-dev-kit",
+      "source": {
+        "source": "local",
+        "path": "./plugins/ml-dev-kit"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

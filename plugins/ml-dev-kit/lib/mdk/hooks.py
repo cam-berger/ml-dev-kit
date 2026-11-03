@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from .patch import PatchError, patch_paths
 from .run import (
     Run, RunError, active_run, document, has_runs, is_approved, next_action, project_root, record_approval,
 )
@@ -13,7 +14,7 @@ APPROVE_RE = re.compile(r"^\s*approved?\s*[.!]?\s*$", re.IGNORECASE)
 _FILE_KEY = {"Edit": "file_path", "Write": "file_path", "MultiEdit": "file_path", "NotebookEdit": "notebook_path"}
 _OWNED = "state.json and records.json belong to mdk: change Run state with an mdk command, not by editing them."
 _HOOK_CALL = re.compile(r"\bmdk\b[^\n|;&]*\bhook['\"]?\s+['\"]?(?:gate|prompt)\b")
-_HOOK_ONLY = "`mdk hook` is for Claude Code's hooks: only the human's own typed reply records an Approval."
+_HOOK_ONLY = "`mdk hook` is for runtime hooks: only the human's own typed reply records an Approval."
 _NO_WORKAROUND = (
     "Don't get around this another way (Bash, sed, cat, a script); "
     "the gate is what keeps the human in charge of the Run."
@@ -28,32 +29,59 @@ def gate(event: dict) -> dict | None:
         reason = _bash_reason(given.get("command") or "")
         return _deny(reason) if reason and _active(event) else None
     key = _FILE_KEY.get(tool)
-    if key is None or not given.get(key):
+    if tool != "apply_patch" and (key is None or not given.get(key)):
         return None
     run = _active(event)
     if run is None:
         return None
-    try:
-        rel = (Path(event["cwd"]) / given[key]).resolve().relative_to(run.root.resolve())
-    except ValueError:
-        return None
+    if tool == "apply_patch":
+        try:
+            paths = patch_paths(given.get("command"))
+        except PatchError as err:
+            return _deny(str(err))
+    else:
+        paths = [given[key]]
+    for path in paths:
+        reason = _file_reason(run, Path(event["cwd"]), path)
+        if reason:
+            return _deny(reason)
+    return None
+
+
+def _file_reason(run: Run, cwd: Path, path: str) -> str | None:
+    candidate = cwd / path
+    # Delete and Move remove the entry itself, even when its target is outside
+    # the project. Content writes can also affect a protected target via a link.
+    affected = (candidate.parent.resolve() / candidate.name, candidate.resolve())
+    for entry in affected:
+        try:
+            rel = entry.relative_to(run.root.resolve())
+        except ValueError:
+            continue
+        reason = _relative_reason(run, rel)
+        if reason:
+            return reason
+    return None
+
+
+def _relative_reason(run: Run, rel: Path) -> str | None:
     # macOS and Windows ignore case, so the deny rules match every spelling and the allow rules only the exact one.
     folded = tuple(part.casefold() for part in rel.parts)
     if len(folded) == 4 and folded[:2] == ("docs", "features") and folded[3] in ("state.json", "records.json"):
-        return _deny(_OWNED)
+        return _OWNED
     if folded == ("standards.md",) and run.stage != "setup":
-        return _deny("STANDARDS.md is human-owned once setup is over: ask the human to edit it themselves.")
+        return "STANDARDS.md is human-owned once setup is over: ask the human to edit it themselves."
     if rel.parts in (("STANDARDS.md",), ("CONTEXT.md",)) or rel.parts[:2] in _ALWAYS_ALLOWED:
         return None
     if _source_edits_allowed(run):
         return None
     if run.stage == "build":
-        return _deny(
+        return (
             f"the Spec for feature {run.current} is missing or its body changed after its Approval. "
             f"Restore the approved Spec body, or run `mdk escalate {run.current} <reason>` "
             "so the human can approve the change."
         )
-    return _deny(f"source edits are not allowed yet. {next_action(run)}")
+    return f"source edits are not allowed yet. {next_action(run)}"
 
 
 def on_prompt(event: dict) -> dict | None:

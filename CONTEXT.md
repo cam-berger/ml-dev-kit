@@ -1,6 +1,6 @@
 # Feature Workflow Plugin
 
-A Claude Code plugin that takes one Goal per Run through human-approved specification, architecture-first implementation, and testing, so the resulting codebase stays explainable and easy to build on.
+A plugin for Claude Code and Codex that takes one Goal per Run through human-approved specification, architecture-first implementation, and testing, so the resulting codebase stays explainable and easy to build on.
 
 ## Language
 

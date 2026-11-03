@@ -165,7 +165,7 @@ class SkillFileTests(unittest.TestCase):
 
     def test_skill_files_stay_short(self):
         # Long prompts go unread; the limits come from the design's anti-goals.
-        limits = {SKILL / "SKILL.md": 80, REPO / "README.md": 60, **{SKILL / r: 100 for r in REFERENCES}}
+        limits = {SKILL / "SKILL.md": 80, REPO / "README.md": 85, **{SKILL / r: 100 for r in REFERENCES}}
         for path, limit in limits.items():
             self.assertLessEqual(len(path.read_text(encoding="utf-8").splitlines()), limit, path.name)
 

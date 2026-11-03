@@ -9,9 +9,11 @@ argument-hint: "[goal]"
 
 A Run carries one Goal. The human co-writes and approves the Breakdown (the Features, in build order) and each Feature's Spec. After a Spec's Approval, subagents build and review that Feature without the human, and `mdk` records it as Done only when its check passes. The Run's files live in `docs/features/<run-slug>/` and its work on the branch `mdk/<run-slug>`.
 
-Goal given with the command (may be empty): $ARGUMENTS
+In Claude Code the Goal is `$ARGUMENTS`; in Codex it is the text accompanying the skill invocation. Either may be empty to resume.
 
-`mdk` is on PATH while this plugin is enabled. If the shell cannot find it, use `python3 "${CLAUDE_SKILL_DIR}/../../bin/mdk"` in its place for the rest of the Run.
+Resolve `../../bin/mdk` relative to the installed directory of this `SKILL.md`. Use `python3 "<absolute path to bin/mdk>"` for every `mdk` command below; do not depend on PATH. Claude Code also provides `${CLAUDE_SKILL_DIR}` for this directory.
+
+In Codex, first read [references/codex.md](references/codex.md) for hook setup, subagent dispatch and command timing. The same stages and Approval rules below apply.
 
 ## Start
 
