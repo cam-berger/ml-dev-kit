@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from helpers import BREAKDOWN_OK, STANDARDS_OK, build_ready_repo, make_repo, spec_text, write
+from helpers import BREAKDOWN_OK, STANDARDS_OK, build_ready_repo, commit, make_repo, spec_text, write
 from mdk.hooks import fails_closed, gate, on_prompt
 from mdk.run import RunError, current_hash, escalate, init_run, is_approved, record_approval, request_approval
 
@@ -72,6 +73,15 @@ class HookCase(unittest.TestCase):
     def build_stage(self):
         return build_ready_repo(self.fresh(), "python3 -c pass")
 
+    def second_run(self):
+        """`payments` at its Breakdown, on its own branch, which also carries the unfinished `accounts`."""
+        root = make_repo(self.fresh(), {"STANDARDS.md": STANDARDS_OK})
+        init_run(root, SLUG, "Let people sign up")
+        commit(root, "accounts files")
+        for args in (("switch", "main"), ("merge", "--ff-only", f"mdk/{SLUG}")):
+            subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
+        return root, init_run(root, "payments", "Take payments")
+
     def records(self, run):
         return json.loads((run.dir / "records.json").read_text(encoding="utf-8"))
 
@@ -94,6 +104,13 @@ class GateTests(HookCase):
         self.assertEqual(result["hookSpecificOutput"]["hookEventName"], "PreToolUse")
         self.assertTrue(reason(result).startswith("ml-dev-kit: "))
         self.assertIn("Waiting for the human to approve the Spec for feature 01", reason(result))
+
+    def test_gate_follows_the_run_whose_branch_is_checked_out(self):
+        root, _ = self.second_run()
+        result = gate(edit(root, "src/a.py"))
+        self.assertEqual(decision(result), "deny")
+        self.assertIn("Write breakdown.md with the human", reason(result))
+        self.assertIsNone(gate(edit(root, "docs/features/payments/breakdown.md")))
 
     def test_gate_allows_docs_and_context_during_spec(self):
         root, _ = self.spec_stage()
@@ -369,6 +386,14 @@ class PromptTests(HookCase):
                 self.assertIn("recorded", result["hookSpecificOutput"]["additionalContext"])
                 self.assertEqual(len(self.records(run)["approvals"]), before + 1)
                 self.assertTrue(is_approved(run, "spec", "01"))
+
+    def test_prompt_approves_the_run_whose_branch_is_checked_out(self):
+        root, run = self.second_run()
+        write(root, "docs/features/payments/breakdown.md", BREAKDOWN_OK)
+        request_approval(run, "breakdown")
+        result = on_prompt(prompt(root, "approve"))
+        self.assertIn("recorded the human's Approval of breakdown", result["hookSpecificOutput"]["additionalContext"])
+        self.assertTrue(is_approved(run, "breakdown"))
 
     def test_prompt_reports_what_was_recorded(self):
         root, run = self.spec_stage()

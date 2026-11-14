@@ -73,22 +73,33 @@ def has_runs(root: Path) -> bool:
 
 
 def active_run(root: Path) -> Run | None:
-    runs = []
-    for path in _state_files(root):
-        state = _load(path, _STATE_KEYS)
-        if state["stage"] != "done":
-            runs.append(Run(root, path.parent.name, state))
-    if len(runs) > 1:
-        raise RunError("more than one active Run: " + ", ".join(r.slug for r in runs))
-    return runs[0] if runs else None
+    """The unfinished Run this checkout works on. Runs go side by side on their own branches, and a Run that lands
+    before it is finished brings its files to the others, so when the tree holds more than one unfinished Run the
+    active one is the Run whose branch is checked out. A lone unfinished Run is active on any branch."""
+    runs = _unfinished(root)
+    if len(runs) < 2:
+        return runs[0] if runs else None
+    branch = _current_branch(root)
+    here = [run for run in runs if run.state["branch"] == branch]
+    if len(here) > 1:
+        raise RunError(f"more than one active Run on branch {branch!r}: " + ", ".join(r.slug for r in here))
+    if not here:
+        where = f"the checked-out branch {branch!r}" if branch else "a detached HEAD"
+        raise RunError(
+            "more than one active Run (" + ", ".join(r.slug for r in runs) + f"), and none of them works on {where}: "
+            "switch to " + " or ".join(r.state["branch"] for r in runs)
+        )
+    return here[0]
 
 
 def init_run(root: Path, slug: str, goal: str) -> Run:
     if not _SLUG.fullmatch(slug):
         raise RunError(f"bad slug {slug!r}: use lowercase letters and digits, joined by single hyphens")
-    existing = active_run(root)
-    if existing:
-        raise RunError(f"Run {existing.slug!r} is still active; finish it first")
+    # Only the checked-out branch's own Run blocks a new one: a Run that began elsewhere goes on beside it.
+    branch = _current_branch(root)
+    for existing in _unfinished(root):
+        if existing.state["branch"] == branch:
+            raise RunError(f"Run {existing.slug!r} is still active; finish it first")
     stage = "breakdown" if _standards_readable(root) else "setup"
     run = Run(root, slug, {
         "goal": goal, "slug": slug, "branch": f"mdk/{slug}", "stage": stage, "awaiting": None,
@@ -372,6 +383,16 @@ def _read(path: Path) -> str:
         return path.read_text(encoding="utf-8")
     except OSError as err:
         raise RunError(f"cannot read {path}: {err.strerror}") from err
+
+
+def _unfinished(root: Path) -> list[Run]:
+    states = ((path, _load(path, _STATE_KEYS)) for path in _state_files(root))
+    return [Run(root, path.parent.name, state) for path, state in states if state["stage"] != "done"]
+
+
+def _current_branch(root: Path) -> str:
+    """The checked-out branch, or an empty string when HEAD is detached."""
+    return _git(root, "branch", "--show-current")
 
 
 def _state_files(root: Path) -> list[Path]:
