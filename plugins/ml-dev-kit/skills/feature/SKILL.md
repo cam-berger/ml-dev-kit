@@ -19,7 +19,7 @@ In Codex, first read [references/codex.md](references/codex.md) for hook setup, 
 
 1. Run `git rev-parse --show-toplevel`. If it fails, the project is not a git repo, and a Run needs one for its branch and commits. Offer to run `git init`. Before the first commit, show the human `git status --short` and propose a `.gitignore` for the stack, so secrets, dependencies and build output stay out of history; then run `git add -A && git commit --allow-empty -m "Initial commit"`. Stop if the human declines.
 2. Run `mdk status`. It prints JSON with `active`, `stage`, `awaiting`, `current`, `features`, `escalation` and `next`, the step to take now.
-3. If `active` is true, resume: tell the human in a line where the Run stands, then route by stage below. If a Goal was also given, say that Run `<slug>` is still active and must finish first.
+3. If `active` is true, resume: tell the human in a line where the Run stands, then route by stage below. If a Goal was also given, say that Run `<slug>` is still active and must finish first, unless the human wants the new Run to go beside it. A second Run starts in a working copy of its own, from a branch that is not the first Run's: there `mdk init` allows it. Where a tree then holds both, `mdk` follows the Run whose branch is checked out.
 4. If no Run is active and no Goal was given, ask for the Goal. Otherwise pick a short slug for it (lowercase words joined by hyphens, such as `user-accounts`) and run `mdk init <slug> "<goal>"`, then `mdk status` again. `init` needs a clean working tree. If it refuses, show the human why and offer the fix.
 
 ## Route by stage

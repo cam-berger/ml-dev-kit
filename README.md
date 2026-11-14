@@ -45,6 +45,8 @@ To abandon a Run, switch back to your own branch, delete `docs/features/<goal-sl
 
 Each Run works on branch `mdk/<goal-slug>` and commits locally. Nothing is pushed by the workflow.
 
+Two Runs can go side by side, each on its own branch and in its own working copy. Start the second from a branch that is not the first Run's. When a tree holds more than one unfinished Run, for example after one of them landed on `main` part-way, the plugin follows the Run whose branch is checked out, and refuses on a branch that belongs to neither.
+
 ## Requirements
 
 git and python3 3.9 or later (standard library only). Codex also needs a runtime with trusted lifecycle hooks and subagent tools.

@@ -52,6 +52,18 @@ class RunCase(unittest.TestCase):
     def started(self):
         return init_run(self.root, SLUG, GOAL)
 
+    def landed_on_main(self, run):
+        """Commit the Run's files and bring them to `main`, as when a Run lands before it is finished."""
+        commit(self.root, f"{run.slug} files")
+        self.git("switch", "main")
+        self.git("merge", "--ff-only", run.state["branch"])
+
+    def two_unfinished(self):
+        """`accounts` landed on `main` unfinished, then `payments` started from there: its branch carries both."""
+        first = self.started()
+        self.landed_on_main(first)
+        return first, init_run(self.root, "payments", "Take payments")
+
     def with_breakdown_approved(self):
         run = self.started()
         write(self.root, f"docs/features/{SLUG}/breakdown.md", BREAKDOWN_OK)
@@ -127,6 +139,24 @@ class InitTests(RunCase):
         with self.assertRaisesRegex(RunError, SLUG):
             init_run(self.root, "payments", "Take payments")
 
+    def test_init_starts_a_second_run_from_a_branch_that_is_not_the_first_runs(self):
+        first = self.started()
+        self.landed_on_main(first)
+        before = (first.dir / "state.json").read_bytes()
+        second = init_run(self.root, "payments", "Take payments")
+        self.assertEqual(self.git("branch", "--show-current"), "mdk/payments")
+        self.assertEqual(self.saved(second)["branch"], "mdk/payments")
+        self.assertEqual((first.dir / "state.json").read_bytes(), before)
+
+    def test_init_starts_a_run_from_a_branch_that_carries_two_unfinished_runs(self):
+        self.two_unfinished()
+        commit(self.root, "payments files")
+        self.git("switch", "main")
+        self.git("merge", "--ff-only", "mdk/payments")
+        third = init_run(self.root, "search", "Find things")
+        self.assertEqual(self.git("branch", "--show-current"), "mdk/search")
+        self.assertEqual(active_run(self.root).slug, third.slug)
+
     def test_init_rejects_bad_slug(self):
         for slug in ("Bad Slug", "", "-x", "a--b", "x_y"):
             with self.subTest(slug=slug), self.assertRaises(RunError):
@@ -169,6 +199,37 @@ class DiscoveryTests(RunCase):
             shutil.copy(run.dir / name, other / name)
         with self.assertRaisesRegex(RunError, "accounts.*other"):
             active_run(self.root)
+
+    def test_one_unfinished_run_is_active_on_any_branch(self):
+        self.landed_on_main(self.started())
+        self.assertEqual(active_run(self.root).slug, SLUG)
+        self.git("switch", "-c", "elsewhere")
+        self.assertEqual(active_run(self.root).slug, SLUG)
+
+    def test_two_unfinished_runs_follow_the_checked_out_branch(self):
+        self.two_unfinished()
+        self.assertEqual(active_run(self.root).slug, "payments")
+        commit(self.root, "payments files")
+        self.git("switch", "mdk/accounts")
+        self.git("merge", "--ff-only", "mdk/payments")
+        self.assertEqual(active_run(self.root).slug, SLUG)
+
+    def test_two_unfinished_runs_on_a_branch_of_neither_are_refused(self):
+        self.two_unfinished()
+        commit(self.root, "payments files")
+        self.git("switch", "main")
+        self.git("merge", "--ff-only", "mdk/payments")
+        with self.assertRaisesRegex(RunError, "accounts.*payments.*'main'.*mdk/accounts.*mdk/payments"):
+            active_run(self.root)
+
+    def test_a_finished_run_leaves_the_other_active_on_any_branch(self):
+        first, _ = self.two_unfinished()
+        state = self.saved(first)
+        state["stage"] = "done"
+        (first.dir / "state.json").write_text(json.dumps(state), encoding="utf-8")
+        commit(self.root, "accounts done")
+        self.git("switch", "-c", "elsewhere")
+        self.assertEqual(active_run(self.root).slug, "payments")
 
     def test_active_run_ignores_a_state_json_without_records(self):
         # M1: every Run directory holds records.json from init on, so a lone state.json belongs to something else.
