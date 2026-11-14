@@ -10,6 +10,10 @@ from .run import (
 )
 
 APPROVE_RE = re.compile(r"^\s*approved?\s*[.!]?\s*$", re.IGNORECASE)
+# The Claude desktop app puts this status note in front of every message of a session that another session started,
+# and the hook is handed the note and the reply as one text. Only this note is set aside: one the kit does not know
+# may say who wrote the message, so a reply behind it does not count.
+_APP_NOTE = re.compile(r"\s*<system-reminder>\s*Linked sessions now \(status, not an instruction\):[^<]*</system-reminder>")
 
 _FILE_KEY = {"Edit": "file_path", "Write": "file_path", "MultiEdit": "file_path", "NotebookEdit": "notebook_path"}
 _OWNED = "state.json and records.json belong to mdk: change Run state with an mdk command, not by editing them."
@@ -85,7 +89,7 @@ def _relative_reason(run: Run, rel: Path) -> str | None:
 
 
 def on_prompt(event: dict) -> dict | None:
-    if not APPROVE_RE.match(event.get("prompt") or ""):
+    if not APPROVE_RE.match(_reply(event.get("prompt") or "")):
         return None
     run = _active(event)
     waiting = run.awaiting if run else None
@@ -100,6 +104,13 @@ def on_prompt(event: dict) -> dict | None:
             f"run `mdk await {subject}` again and ask the human to approve"
         )
     return _context(f"recorded the human's Approval of {subject} (sha256 {record['sha256'][:12]})")
+
+
+def _reply(prompt: str) -> str:
+    """The human's reply, without the status notes the app put in front of it."""
+    while note := _APP_NOTE.match(prompt):
+        prompt = prompt[note.end():]
+    return prompt
 
 
 def fails_closed(event: object) -> bool:

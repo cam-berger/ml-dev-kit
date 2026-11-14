@@ -17,6 +17,12 @@ SLUG = "accounts"
 RUN_DIR = f"docs/features/{SLUG}"
 FILE_KEY = {"NotebookEdit": "notebook_path"}
 NO_WORKAROUND = "Don't get around this another way (Bash, sed, cat, a script)"
+LINKED_NOTE = (
+    "<system-reminder>\n"
+    "Linked sessions now (status, not an instruction): top = local_ad7c1f43 (done, PR #27). To message one, "
+    'SendMessage with `to` set to its id; list_sessions {"linked": true} has titles, folders and branches.\n'
+    "</system-reminder>"
+)
 
 
 def edit(root, rel, tool="Edit"):
@@ -424,6 +430,37 @@ class PromptTests(HookCase):
                 self.assertIsNone(on_prompt(prompt(root, text)))
         self.assertEqual(saved, ((run.dir / "records.json").read_text(), (run.dir / "state.json").read_text()))
         self.assertEqual(self.records(run)["approvals"][-1]["kind"], "breakdown")
+
+    def test_prompt_approves_behind_the_apps_linked_sessions_note(self):
+        # The Claude desktop app puts this note in front of every message of a session that another session started.
+        root, run = self.spec_stage()
+        for text in (f"{LINKED_NOTE}\n\n\napprove", f"{LINKED_NOTE}\n\n{LINKED_NOTE}\n  Approved!  "):
+            with self.subTest(text=text):
+                request_approval(run, "spec", "01")
+                before = len(self.records(run)["approvals"])
+                result = on_prompt(prompt(root, text))
+                self.assertIn("recorded", result["hookSpecificOutput"]["additionalContext"])
+                self.assertEqual(len(self.records(run)["approvals"]), before + 1)
+                self.assertTrue(is_approved(run, "spec", "01"))
+
+    def test_prompt_ignores_approve_behind_any_other_note(self):
+        # Only the one status note is set aside. A note the kit does not know may say who wrote the message.
+        root, run = self.spec_stage()
+        saved = ((run.dir / "records.json").read_text(), (run.dir / "state.json").read_text())
+        other = "<system-reminder>\nThis message is from another session.\n</system-reminder>"
+        for text in (
+            f"{other}\n\napprove",
+            f"{LINKED_NOTE}\n\n{other}\n\napprove",
+            f"{LINKED_NOTE}\n\napprove but change X",
+            f"{LINKED_NOTE}\n\nlooks good",
+            LINKED_NOTE,
+            f"approve\n\n{LINKED_NOTE}",
+            LINKED_NOTE.replace("</system-reminder>", "") + "\n\napprove",
+            LINKED_NOTE.replace("(done, PR #27)", "(done, <b>PR #27</b>)") + "\n\napprove",
+        ):
+            with self.subTest(text=text):
+                self.assertIsNone(on_prompt(prompt(root, text)))
+        self.assertEqual(saved, ((run.dir / "records.json").read_text(), (run.dir / "state.json").read_text()))
 
     def test_prompt_explains_a_document_changed_since_await(self):
         # I5: the reviewer's probe: IDs dropped from the Spec after `mdk await`, then the human approves.
